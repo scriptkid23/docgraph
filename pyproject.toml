@@ -1,0 +1,29 @@
+[tool.poetry]
+name = "boostmcp"
+version = "2.0.0"
+description = "Local document RAG server for Cursor via MCP"
+authors = ["BoostMCP Contributors"]
+readme = "README.md"
+packages = [{ include = "boostmcp" }]
+
+[tool.poetry.dependencies]
+python = "^3.10"
+pyyaml = "^6.0"
+
+[tool.poetry.group.dev.dependencies]
+pytest = "^8.0"
+pytest-asyncio = "^0.25"
+
+[tool.poetry.scripts]
+boostmcp = "boostmcp.cli:main"
+
+[build-system]
+requires = ["poetry-core"]
+build-backend = "poetry.core.masonry.api"
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "integration: tests requiring Ollama or external services",
+]

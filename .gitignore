@@ -7,11 +7,14 @@
 /boostmcp
 /boostmcp.exe
 
-# Go build & test artifacts
-*.test
-*.out
-/coverage.out
-/coverage.html
+# Python
+.venv/
+__pycache__/
+*.pyc
+.pytest_cache/
+.mypy_cache/
+dist/
+*.egg-info/
 
 # Dependency caches (local)
 /vendor/
