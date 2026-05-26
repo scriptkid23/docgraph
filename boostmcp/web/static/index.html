@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>BoostMCP — Documents</title>
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+  <header>
+    <h1>BoostMCP Documents</h1>
+    <p id="health">Checking health...</p>
+  </header>
+  <section class="upload">
+    <div id="dropzone">Drop files here or click to upload</div>
+    <input type="file" id="file-input" multiple hidden>
+    <label>Folder <input type="text" id="folder" placeholder="e.g. BoostMCP"></label>
+    <label>Tags <input type="text" id="tags" placeholder="comma-separated"></label>
+  </section>
+  <section>
+    <h2>Documents</h2>
+    <table id="doc-table">
+      <thead>
+        <tr>
+          <th>File</th>
+          <th>Folder</th>
+          <th>Tags</th>
+          <th>Status</th>
+          <th>Chunks</th>
+          <th>Actions</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+  </section>
+  <script src="/app.js"></script>
+</body>
+</html>
