@@ -13,6 +13,16 @@
   </header>
   <section class="upload">
     <div id="dropzone">Drop files here or click to upload</div>
+    <div id="upload-progress" class="upload-progress hidden" aria-live="polite" role="status">
+      <div class="upload-progress-row">
+        <span id="upload-label">Uploading…</span>
+        <span id="upload-percent">0%</span>
+      </div>
+      <div class="upload-progress-track" aria-hidden="true">
+        <div id="upload-bar" class="upload-progress-bar"></div>
+      </div>
+      <p id="upload-detail" class="upload-progress-detail"></p>
+    </div>
     <input type="file" id="file-input" multiple hidden>
     <label>Folder <input type="text" id="folder" placeholder="e.g. BoostMCP"></label>
     <label>Tags <input type="text" id="tags" placeholder="comma-separated"></label>

@@ -24,18 +24,33 @@ poetry run boostmcp serve
 ```
 
 - Web UI: http://127.0.0.1:8080 (upload and manage documents)
-- MCP: stdio (Cursor attaches automatically)
+- MCP SSE: http://127.0.0.1:8080/mcp/sse (connect Cursor via URL below)
+
+Keep this terminal running while using Cursor.
 
 ## Cursor MCP Configuration
 
-Add to Cursor MCP settings:
+**Recommended — server chạy riêng, MCP trỏ HTTP** (chạy `boostmcp serve` trước):
+
+```json
+{
+  "mcpServers": {
+    "boostmcp": {
+      "command": "npx",
+      "args": ["-y", "mcp-remote@latest", "http://127.0.0.1:8080/mcp/sse"]
+    }
+  }
+}
+```
+
+**Alternative — Cursor tự launch process (stdio):**
 
 ```json
 {
   "mcpServers": {
     "boostmcp": {
       "command": "poetry",
-      "args": ["run", "boostmcp", "serve"],
+      "args": ["run", "boostmcp", "serve", "--stdio"],
       "cwd": "C:/Users/hoan.do/Documents/project/BoostMCP"
     }
   }

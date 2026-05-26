@@ -32,8 +32,14 @@ async def _run_index(state: AppState, doc_id: str, original_path: Path) -> None:
         pass
 
 
-def create_app(cfg: Config) -> FastAPI:
-    state = AppState.create(cfg)
+def create_app(
+    cfg: Config,
+    *,
+    state: AppState | None = None,
+    mount_mcp: bool = True,
+) -> FastAPI:
+    if state is None:
+        state = AppState.create(cfg)
     app = FastAPI(title="BoostMCP", version="2.0.0")
     app.state.boostmcp = state
 
@@ -47,10 +53,12 @@ def create_app(cfg: Config) -> FastAPI:
         except Exception as exc:
             ollama_ok = False
             ollama_error = str(exc)
+        mcp_url = f"http://{st.cfg.web_host}:{st.cfg.web_port}/mcp/sse"
         return {
             "status": "ok",
             "ollama": {"ok": ollama_ok, "error": ollama_error},
             "embed_provider": st.cfg.embed_provider,
+            "mcp_sse_url": mcp_url,
         }
 
     @app.get("/api/documents")
@@ -127,6 +135,12 @@ def create_app(cfg: Config) -> FastAPI:
             raise HTTPException(status_code=404, detail="not found")
         background_tasks.add_task(st.indexer().reindex_document, doc_id)
         return {"doc_id": doc_id, "status": "processing"}
+
+    if mount_mcp:
+        from boostmcp.mcp.server import create_mcp_server
+
+        mcp = create_mcp_server(state)
+        app.mount("/mcp", mcp.sse_app())
 
     app.mount("/", StaticFiles(directory=STATIC_DIR, html=True), name="static")
     return app

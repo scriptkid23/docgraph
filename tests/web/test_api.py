@@ -20,7 +20,18 @@ async def test_health_endpoint(app):
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.get("/api/health")
     assert resp.status_code == 200
-    assert "status" in resp.json()
+    body = resp.json()
+    assert "status" in body
+    assert "mcp_sse_url" in body
+
+
+def test_mcp_sse_mounted(app):
+    mount_paths = [
+        getattr(route, "path", "")
+        for route in app.routes
+        if getattr(route, "path", None)
+    ]
+    assert "/mcp" in mount_paths
 
 
 @pytest.mark.asyncio
