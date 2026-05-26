@@ -28,6 +28,16 @@ func New(baseURL, defaultModel string, timeoutMs int) *Provider {
 	}
 }
 
+// SetDefaultModel updates the model used when GenerateRequest.Model is empty.
+func (p *Provider) SetDefaultModel(model string) {
+	p.model = model
+}
+
+// DefaultModel returns the configured default model name.
+func (p *Provider) DefaultModel() string {
+	return p.model
+}
+
 type generateBody struct {
 	Model       string  `json:"model"`
 	Prompt      string  `json:"prompt"`

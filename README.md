@@ -42,7 +42,7 @@ Use full path to binary if not on PATH.
 
 | Env Variable | Default | Description |
 |---|---|---|
-| `BOOSTMCP_MODEL` | `codellama:7b` | Default model |
+| `BOOSTMCP_MODEL` | `codellama:7b` | Preferred model; if not installed, first available Ollama model is picked (see startup log on stderr) |
 | `BOOSTMCP_OLLAMA_URL` | `http://localhost:11434` | Ollama URL |
 | `BOOSTMCP_TIMEOUT_MS` | `30000` | Per-call timeout |
 | `BOOSTMCP_MAX_CANDIDATES` | `16` | Max N |

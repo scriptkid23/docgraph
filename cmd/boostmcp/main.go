@@ -20,7 +20,8 @@ func main() {
 	if err != nil {
 		log.Fatalf("server: %v", err)
 	}
-	if err := srv.ProviderHealth(context.Background()); err != nil {
+	ctx := context.Background()
+	if err := srv.ProviderHealth(ctx); err != nil {
 		log.Printf("warning: %v", err)
 	}
 	if err := srv.Run(context.Background()); err != nil {
