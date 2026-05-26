@@ -23,7 +23,20 @@ ollama pull nomic-embed-text
 poetry run boostmcp serve
 ```
 
-- Web UI: http://127.0.0.1:8080 (upload and manage documents)
+- Web UI: http://127.0.0.1:8080 (React — upload and manage documents)
+
+### Web UI development (React + Vite)
+
+The UI uses a **Minimalist Monochrome** design system (Playfair Display, Source Serif 4, JetBrains Mono; pure black/white; sharp corners; line-based progress).
+
+```bash
+cd frontend
+npm install
+npm run dev          # http://127.0.0.1:5173 — proxies /api → :8080
+npm run build        # output → boostmcp/web/static/
+```
+
+Design tokens live in `frontend/src/styles/`. Run `npm run build` after UI changes.
 - MCP SSE: http://127.0.0.1:8080/mcp/sse (connect Cursor via URL below)
 
 Keep this terminal running while using Cursor.

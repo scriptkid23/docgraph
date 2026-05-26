@@ -33,3 +33,7 @@ Thumbs.db
 # Env / secrets
 .env
 .env.*
+
+# React UI
+frontend/node_modules/
+frontend/dist/
