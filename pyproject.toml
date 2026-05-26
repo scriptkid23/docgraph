@@ -10,10 +10,15 @@ packages = [{ include = "boostmcp" }]
 python = "^3.10"
 pyyaml = "^6.0"
 chromadb = "^1.5.9"
+openai = { version = "^1.0", optional = true }
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^8.0"
 pytest-asyncio = "^0.25"
+respx = "^0.22"
+
+[tool.poetry.extras]
+openai = ["openai"]
 
 [tool.poetry.scripts]
 boostmcp = "boostmcp.cli:main"
