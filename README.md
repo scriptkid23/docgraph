@@ -1,61 +1,84 @@
 # BoostMCP
 
-Local AI code co-processor for Cursor via MCP. Generates multiple SLM candidates, narrows them with a rubric, and returns top-k for Cursor to pick.
+Local document RAG server for Cursor via MCP. Upload files through a Web UI, index them with Ollama embeddings, and query your documents in Cursor using the `/document` skill.
 
 ## Prerequisites
 
-- Go 1.22+
+- Python 3.10–3.13
+- [Poetry](https://python-poetry.org/)
 - [Ollama](https://ollama.com/) running locally
-- A code model pulled, e.g. `ollama pull codellama:7b`
+- Embedding model: `ollama pull nomic-embed-text`
 
-## Build
+## Install
 
 ```bash
-go build -o boostmcp ./cmd/boostmcp
+poetry install
+poetry install -E openai   # optional: cloud embedding
+ollama pull nomic-embed-text
 ```
+
+## Run
+
+```bash
+poetry run boostmcp serve
+```
+
+- Web UI: http://127.0.0.1:8080 (upload and manage documents)
+- MCP: stdio (Cursor attaches automatically)
 
 ## Cursor MCP Configuration
 
-Add to Cursor MCP settings (`~/.cursor/mcp.json` or Cursor Settings → MCP):
+Add to Cursor MCP settings:
 
 ```json
 {
   "mcpServers": {
     "boostmcp": {
-      "command": "boostmcp",
-      "args": []
+      "command": "poetry",
+      "args": ["run", "boostmcp", "serve"],
+      "cwd": "C:/Users/hoan.do/Documents/project/BoostMCP"
     }
   }
 }
 ```
 
-Use full path to binary if not on PATH.
+## `/document` Skill
 
-## Tools
+Copy `skills/document/SKILL.md` to your Cursor skills directory:
+
+- Global: `~/.cursor/skills/document/SKILL.md`
+- Project: `.cursor/skills/document/SKILL.md`
+
+Then in Cursor chat:
+
+```
+/document How do I configure the embedding provider?
+/document --folder docs --tag v2 What is BoostMCP v2?
+```
+
+## MCP Tools
 
 | Tool | Description |
 |------|-------------|
-| `generate_candidates` | Generate N code candidates from local SLM |
-| `narrow_candidates` | Score and filter candidates using a rubric |
+| `search_documents` | Semantic search over indexed documents |
+| `list_documents` | List documents with optional filters |
+| `get_document` | Get full converted markdown for a document |
 
 ## Configuration
 
 | Env Variable | Default | Description |
 |---|---|---|
-| `BOOSTMCP_MODEL` | `codellama:7b` | Preferred model; if not installed, first available Ollama model is picked (see startup log on stderr) |
-| `BOOSTMCP_OLLAMA_URL` | `http://localhost:11434` | Ollama URL |
-| `BOOSTMCP_TIMEOUT_MS` | `30000` | Per-call timeout |
-| `BOOSTMCP_MAX_CANDIDATES` | `16` | Max N |
-| `BOOSTMCP_DEFAULT_TOP_K` | `2` | Default top-k |
+| `BOOSTMCP_DATA_DIR` | `~/.boostmcp` | Data directory |
+| `BOOSTMCP_WEB_PORT` | `8080` | Web UI port |
+| `BOOSTMCP_EMBED_PROVIDER` | `ollama` | `ollama` or `openai` |
+| `BOOSTMCP_OLLAMA_URL` | `http://localhost:11434` | Ollama endpoint |
+| `BOOSTMCP_OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model |
+
+See [v2 design spec](docs/superpowers/specs/2026-05-26-boostmcp-v2-rag-design.md) and [implementation plans](docs/superpowers/plans/2026-05-26-boostmcp-v2-index.md).
 
 ## Test
 
 ```bash
-go test ./...
-$env:OLLAMA_INTEGRATION="1"; go test -tags=integration ./internal/inference/ollama/... -v
-go test -tags=e2e ./internal/mcp/... -v
+poetry run pytest tests/ -v
+poetry run pytest tests/ -m integration -v   # requires Ollama
 ```
-
-## Architecture
-
-See [design spec](docs/superpowers/specs/2026-05-26-boostmcp-v1-design.md) and [implementation plans](docs/superpowers/plans/2026-05-26-boostmcp-v1-index.md).
