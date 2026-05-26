@@ -1,0 +1,29 @@
+# Binaries
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
+/boostmcp
+/boostmcp.exe
+
+# Go build & test artifacts
+*.test
+*.out
+/coverage.out
+/coverage.html
+
+# Dependency caches (local)
+/vendor/
+
+# IDE / OS
+.idea/
+.vscode/
+*.swp
+*~
+.DS_Store
+Thumbs.db
+
+# Env / secrets
+.env
+.env.*
