@@ -86,7 +86,7 @@ Then in Cursor chat:
 | `BOOSTMCP_DATA_DIR` | `~/.boostmcp` | Data directory |
 | `BOOSTMCP_WEB_PORT` | `8080` | Web UI port |
 | `BOOSTMCP_EMBED_PROVIDER` | `ollama` | `ollama` or `openai` |
-| `BOOSTMCP_OLLAMA_URL` | `http://localhost:11434` | Ollama endpoint |
+| `BOOSTMCP_OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama endpoint (use `127.0.0.1` on Windows, not `localhost`) |
 | `BOOSTMCP_OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model |
 
 See [v2 design spec](docs/superpowers/specs/2026-05-26-boostmcp-v2-rag-design.md) and [implementation plans](docs/superpowers/plans/2026-05-26-boostmcp-v2-index.md).

@@ -1,8 +1,10 @@
 from __future__ import annotations
 
+import asyncio
 from pathlib import Path
 
 from boostmcp.config import Config
+from boostmcp.embed.ollama import EMBED_BATCH_SIZE
 from boostmcp.embed.provider import EmbeddingProvider
 from boostmcp.ingest.chunker import chunk_markdown
 from boostmcp.ingest.converter import convert_file_to_markdown
@@ -27,22 +29,53 @@ class Indexer:
         self._chroma = chroma
         self._embedder = embedder
 
+    def _progress(self, doc_id: str, pct: int, phase: str) -> None:
+        self._sqlite.update_progress(doc_id, pct, phase)
+
+    async def _embed_with_progress(
+        self, doc_id: str, chunks: list[str]
+    ) -> list[list[float]]:
+        total = len(chunks)
+        vectors: list[list[float]] = []
+        for start in range(0, total, EMBED_BATCH_SIZE):
+            batch = chunks[start : start + EMBED_BATCH_SIZE]
+            vectors.extend(await self._embedder.embed(batch))
+            done = min(start + len(batch), total)
+            pct = 45 + int(50 * done / total)
+            self._progress(
+                doc_id,
+                pct,
+                f"Embedding {done}/{total} chunks ({pct}%)",
+            )
+        return vectors
+
     async def index_document(self, doc_id: str, original_path: Path) -> None:
         doc = self._sqlite.get_document(doc_id)
         if doc is None:
             raise ValueError(f"document not found: {doc_id}")
         try:
-            markdown = convert_file_to_markdown(original_path)
+            self._progress(doc_id, 5, "Converting to text (5%)")
+            markdown = await asyncio.to_thread(
+                convert_file_to_markdown, original_path
+            )
+            self._progress(doc_id, 28, "Converted — splitting chunks (28%)")
             md_path = self._files.save_markdown(doc_id, markdown)
-            chunks = chunk_markdown(
+            chunks = await asyncio.to_thread(
+                chunk_markdown,
                 markdown,
-                chunk_size=self._cfg.chunk_size,
-                chunk_overlap=self._cfg.chunk_overlap,
+                self._cfg.chunk_size,
+                self._cfg.chunk_overlap,
             )
             if not chunks:
                 raise ValueError("no chunks produced from document")
 
-            vectors = await self._embedder.embed(chunks)
+            self._progress(
+                doc_id,
+                42,
+                f"Chunked into {len(chunks)} parts (42%)",
+            )
+            vectors = await self._embed_with_progress(doc_id, chunks)
+            self._progress(doc_id, 96, "Saving to index (96%)")
             chroma_chunks = []
             for i, (text, vec) in enumerate(zip(chunks, vectors)):
                 chroma_chunks.append({
@@ -78,4 +111,5 @@ class Indexer:
             raise ValueError(f"cannot reindex: {doc_id}")
         self._chroma.delete_by_doc_id(doc_id)
         self._sqlite.update_status(doc_id, DocumentStatus.PROCESSING)
+        self._progress(doc_id, 0, "Starting re-index (0%)")
         await self.index_document(doc_id, Path(doc.original_path))

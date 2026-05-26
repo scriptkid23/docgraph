@@ -35,6 +35,18 @@ def test_list_documents_filter_by_folder(tmp_data_dir):
     assert rows[0].id == "d1"
 
 
+def test_update_progress(tmp_data_dir):
+    cfg = Config(data_dir=tmp_data_dir)
+    cfg.ensure_dirs()
+    db = SQLiteStore(cfg)
+    db.init_schema()
+    db.insert_document(DocumentRecord(id="d1", filename="a.md"))
+    db.update_progress("d1", 72, "Embedding 18/25 chunks (72%)")
+    got = db.get_document("d1")
+    assert got.progress_pct == 72
+    assert "Embedding" in got.progress_phase
+
+
 def test_update_status(tmp_data_dir):
     cfg = Config(data_dir=tmp_data_dir)
     cfg.ensure_dirs()

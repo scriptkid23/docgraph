@@ -21,6 +21,8 @@ def _doc_to_json(doc: DocumentRecord) -> dict:
         "tags": doc.tags,
         "status": doc.status.value,
         "chunk_count": doc.chunk_count,
+        "progress_pct": doc.progress_pct,
+        "progress_phase": doc.progress_phase,
         "error_message": doc.error_message,
     }
 
@@ -94,6 +96,7 @@ def create_app(
             original_path=str(orig_path),
         )
         st.sqlite.insert_document(doc)
+        st.sqlite.update_progress(doc_id, 0, "Queued for indexing (0%)")
         background_tasks.add_task(_run_index, st, doc_id, orig_path)
         return {"doc_id": doc_id, "status": "processing"}
 

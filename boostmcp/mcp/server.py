@@ -69,6 +69,8 @@ def create_mcp_server(state: AppState) -> FastMCP:
             "tags": d.tags,
             "status": d.status.value,
             "chunk_count": d.chunk_count,
+            "progress_pct": d.progress_pct,
+            "progress_phase": d.progress_phase,
         } for d in docs])
 
     @mcp.tool()

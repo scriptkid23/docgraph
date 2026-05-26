@@ -7,6 +7,9 @@ const uploadPercent = document.getElementById("upload-percent");
 const uploadBar = document.getElementById("upload-bar");
 const uploadDetail = document.getElementById("upload-detail");
 
+const UPLOAD_PROGRESS_CAP = 88;
+const UPLOAD_SERVER_PHASE = 94;
+
 let uploadInProgress = false;
 let lastUploadPercent = 0;
 
@@ -19,6 +22,24 @@ async function loadHealth() {
     : `Ollama: ${data.ollama.error}`;
 }
 
+function formatStatusCell(d) {
+  if (d.status === "processing") {
+    const pct = Number(d.progress_pct) || 0;
+    const phase = d.progress_phase || "Indexing…";
+    return `
+      <div class="status-processing-wrap">
+        <div class="status-processing-title">${escapeHtml(phase)}</div>
+        <div class="doc-progress-track" aria-hidden="true">
+          <div class="doc-progress-bar" style="width:${pct}%"></div>
+        </div>
+      </div>`;
+  }
+  if (d.status === "error" && d.error_message) {
+    return `<span class="status-error">${escapeHtml(d.error_message)}</span>`;
+  }
+  return `<span class="status-${d.status}">${escapeHtml(d.status)}</span>`;
+}
+
 async function loadDocs() {
   const resp = await fetch("/api/documents");
   const docs = await resp.json();
@@ -27,14 +48,15 @@ async function loadDocs() {
       <td>${escapeHtml(d.filename)}</td>
       <td>${escapeHtml(d.folder || "-")}</td>
       <td>${escapeHtml((d.tags || []).join(", "))}</td>
-      <td class="status-${d.status}">${escapeHtml(d.status)}${d.error_message ? ": " + escapeHtml(d.error_message) : ""}</td>
-      <td>${d.chunk_count}</td>
+      <td>${formatStatusCell(d)}</td>
+      <td>${d.status === "processing" ? "…" : d.chunk_count}</td>
       <td>
         <button onclick="reindex('${d.id}')">Re-index</button>
         <button onclick="removeDoc('${d.id}')">Delete</button>
       </td>
     </tr>
   `).join("");
+  return docs;
 }
 
 function escapeHtml(text) {
@@ -53,6 +75,10 @@ function setUploadUI(visible, percent, label, detail) {
   uploadDetail.textContent = detail;
 }
 
+function hideUploadProgressSoon(delayMs = 900) {
+  setTimeout(() => setUploadUI(false, 0, "", ""), delayMs);
+}
+
 function setUploadBusy(busy) {
   uploadInProgress = busy;
   dropzone.classList.toggle("disabled", busy);
@@ -67,17 +93,32 @@ function postFileWithProgress(file, folder, tags, fileIndex, totalFiles) {
     fd.append("tags", tags);
 
     const xhr = new XMLHttpRequest();
+    xhr.timeout = 600000;
     const basePercent = (fileIndex / totalFiles) * 100;
     const slice = 100 / totalFiles;
+    let bytesFullySent = false;
 
     xhr.upload.addEventListener("progress", (e) => {
-      let filePct = 50;
-      if (e.lengthComputable && e.total > 0) {
-        filePct = (e.loaded / e.total) * 100;
-      }
-      const overall = basePercent + (filePct / 100) * slice;
       const loadedMb = (e.loaded / (1024 * 1024)).toFixed(1);
       const totalMb = e.lengthComputable ? (e.total / (1024 * 1024)).toFixed(1) : "?";
+
+      if (e.lengthComputable && e.total > 0 && e.loaded >= e.total) {
+        bytesFullySent = true;
+        const overall = basePercent + (UPLOAD_SERVER_PHASE / 100) * slice;
+        setUploadUI(
+          true,
+          overall,
+          `Saving ${file.name}…`,
+          `File ${fileIndex + 1} of ${totalFiles} · sent ${totalMb} MB, waiting for server`,
+        );
+        return;
+      }
+
+      let filePct = 50;
+      if (e.lengthComputable && e.total > 0) {
+        filePct = Math.min(UPLOAD_PROGRESS_CAP, (e.loaded / e.total) * 100);
+      }
+      const overall = basePercent + (filePct / 100) * slice;
       setUploadUI(
         true,
         overall,
@@ -88,6 +129,15 @@ function postFileWithProgress(file, folder, tags, fileIndex, totalFiles) {
 
     xhr.addEventListener("load", () => {
       if (xhr.status >= 200 && xhr.status < 300) {
+        const overall = basePercent + slice;
+        setUploadUI(
+          true,
+          overall,
+          `Saved ${file.name}`,
+          bytesFullySent
+            ? "Upload accepted — indexing runs in background"
+            : `File ${fileIndex + 1} of ${totalFiles} saved`,
+        );
         resolve();
         return;
       }
@@ -103,6 +153,7 @@ function postFileWithProgress(file, folder, tags, fileIndex, totalFiles) {
 
     xhr.addEventListener("error", () => reject(new Error("Network error during upload")));
     xhr.addEventListener("abort", () => reject(new Error("Upload cancelled")));
+    xhr.addEventListener("timeout", () => reject(new Error("Upload timed out (server too slow)")));
 
     xhr.open("POST", "/api/documents");
     xhr.send(fd);
@@ -122,17 +173,15 @@ async function uploadFiles(files) {
   try {
     for (let i = 0; i < list.length; i++) {
       await postFileWithProgress(list[i], folder, tags, i, list.length);
-      const donePct = ((i + 1) / list.length) * 100;
-      setUploadUI(
-        true,
-        donePct,
-        i + 1 < list.length ? "Upload complete, next file…" : "Upload complete",
-        `File ${i + 1} of ${list.length} finished`,
-      );
     }
-    setUploadUI(true, 100, "Done", "Refreshing document list…");
-    await loadDocs();
-    setTimeout(() => setUploadUI(false, 0, "", ""), 1200);
+    setUploadUI(
+      true,
+      100,
+      "Upload complete",
+      "Indexing in background — status updates every few seconds",
+    );
+    void loadDocs().catch(() => {});
+    hideUploadProgressSoon(1000);
   } catch (err) {
     setUploadUI(true, lastUploadPercent, "Upload failed", err.message);
     uploadBar.style.background = "#dc3545";
@@ -171,6 +220,18 @@ async function reindex(id) {
   await loadDocs();
 }
 
+let docPollTimer = null;
+
+function scheduleDocPoll() {
+  if (docPollTimer) clearInterval(docPollTimer);
+  const tick = async () => {
+    const docs = await loadDocs().catch(() => []);
+    const hasProcessing = docs.some((d) => d.status === "processing");
+    if (docPollTimer) clearInterval(docPollTimer);
+    docPollTimer = setInterval(tick, hasProcessing ? 1500 : 5000);
+  };
+  tick();
+}
+
 loadHealth();
-loadDocs();
-setInterval(loadDocs, 5000);
+scheduleDocPoll();

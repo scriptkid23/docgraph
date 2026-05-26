@@ -12,14 +12,19 @@ def _expand_path(p: str) -> Path:
     return Path(os.path.expanduser(p)).resolve()
 
 
+def normalize_ollama_url(url: str) -> str:
+    """Use 127.0.0.1 instead of localhost (Ollama on Windows often listens on IPv4 only)."""
+    return url.replace("://localhost:", "://127.0.0.1:").replace("://localhost/", "://127.0.0.1/")
+
+
 @dataclass
 class Config:
     data_dir: Path
     web_host: str = "127.0.0.1"
     web_port: int = 8080
     embed_provider: str = "ollama"
-    ollama_url: str = "http://localhost:11434"
-    ollama_model: str = "nomic-embed-text"
+    ollama_url: str = "http://127.0.0.1:11434"
+    ollama_model: str = "nomic-embed-text:latest"
     openai_api_key: str = ""
     openai_model: str = "text-embedding-3-small"
     chunk_size: int = 512
@@ -100,4 +105,5 @@ def load_config() -> Config:
         with yaml_path.open(encoding="utf-8") as f:
             _apply_yaml(cfg, yaml.safe_load(f) or {})
     _apply_env(cfg)
+    cfg.ollama_url = normalize_ollama_url(cfg.ollama_url)
     return cfg

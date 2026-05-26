@@ -4,15 +4,31 @@ from pathlib import Path
 import pytest
 import yaml
 
-from boostmcp.config import Config, load_config
+from boostmcp.config import Config, load_config, normalize_ollama_url
+
+
+def test_normalize_ollama_url_localhost():
+    assert normalize_ollama_url("http://localhost:11434") == "http://127.0.0.1:11434"
+
+
+def test_load_config_normalizes_localhost_ollama_url(tmp_path, monkeypatch):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "config.yaml").write_text(
+        yaml.dump({"embedding": {"ollama_url": "http://localhost:11434"}})
+    )
+    monkeypatch.setenv("BOOSTMCP_DATA_DIR", str(data_dir))
+    cfg = load_config()
+    assert cfg.ollama_url == "http://127.0.0.1:11434"
 
 
 def test_config_defaults(tmp_data_dir):
     cfg = Config(data_dir=tmp_data_dir)
     assert cfg.web_host == "127.0.0.1"
+    assert cfg.ollama_url == "http://127.0.0.1:11434"
     assert cfg.web_port == 8080
     assert cfg.embed_provider == "ollama"
-    assert cfg.ollama_model == "nomic-embed-text"
+    assert cfg.ollama_model == "nomic-embed-text:latest"
     assert cfg.chunk_size == 512
     assert cfg.default_top_k == 5
 

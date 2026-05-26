@@ -19,6 +19,8 @@ class DocumentRecord:
     tags: list[str] = field(default_factory=list)
     status: DocumentStatus = DocumentStatus.PROCESSING
     chunk_count: int = 0
+    progress_pct: int = 0
+    progress_phase: str = ""
     error_message: Optional[str] = None
     original_path: str = ""
     markdown_path: str = ""
