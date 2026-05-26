@@ -4,7 +4,10 @@
 *.dll
 *.so
 *.dylib
+# Root-level binary artifact (not the Python package directory)
 /boostmcp
+!/boostmcp/
+!/boostmcp/**
 /boostmcp.exe
 
 # Python
