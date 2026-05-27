@@ -15,25 +15,31 @@ _SEPARATORS: tuple[str, ...] = (
 )
 
 
-def _split_recursive(text: str, max_chars: int) -> list[str]:
+def _split_recursive(
+    text: str, max_chars: int, start_idx: int = 0
+) -> list[str]:
     """Recursively split text down to pieces ≤ max_chars, preferring natural boundaries."""
     if len(text) <= max_chars:
         return [text]
-    for sep in _SEPARATORS:
+    for i in range(start_idx, len(_SEPARATORS)):
+        sep = _SEPARATORS[i]
         if sep == "":
-            return [text[i : i + max_chars] for i in range(0, len(text), max_chars)]
+            return [text[j : j + max_chars] for j in range(0, len(text), max_chars)]
         if sep not in text:
             continue
         parts = text.split(sep)
         out: list[str] = []
         for idx, part in enumerate(parts):
             # Re-attach the separator (except for the first part) so heading
-            # markers and sentence terminators survive the split.
+            # markers and sentence terminators survive the split. Recurse with
+            # i+1 so we move on to finer separators — otherwise the re-attached
+            # separator at the start of `piece` would re-trigger the same split
+            # forever on a single oversized section.
             piece = part if idx == 0 else sep + part
             if len(piece) <= max_chars:
                 out.append(piece)
             else:
-                out.extend(_split_recursive(piece, max_chars))
+                out.extend(_split_recursive(piece, max_chars, i + 1))
         return out
     return [text]
 

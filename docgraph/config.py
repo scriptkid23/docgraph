@@ -21,7 +21,7 @@ def normalize_ollama_url(url: str) -> str:
 class Config:
     data_dir: Path
     web_host: str = "127.0.0.1"
-    web_port: int = 8080
+    web_port: int = 8088
     embed_provider: str = "ollama"
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "nomic-embed-text:latest"
