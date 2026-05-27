@@ -1,6 +1,7 @@
 import argparse
 import asyncio
 import logging
+import socket
 import sys
 import threading
 
@@ -9,6 +10,16 @@ import uvicorn
 from docgraph.config import load_config
 from docgraph.web.app import create_app
 from docgraph.web.deps import AppState
+
+
+def _port_available(host: str, port: int) -> bool:
+    """Return True if the port is free on the given host."""
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
+        try:
+            sock.bind((host, port))
+        except OSError:
+            return False
+    return True
 
 
 def _log_startup(cfg, log: logging.Logger, *, mcp_sse: bool) -> None:
@@ -49,6 +60,14 @@ def _run_stdio(cfg) -> None:
     log = logging.getLogger("docgraph")
     state = AppState.create(cfg)
     app = create_app(cfg, state=state, mount_mcp=False)
+
+    if not _port_available(cfg.web_host, cfg.web_port):
+        log.warning(
+            "Web UI port %s:%s is already in use; another DocGraph may be running. "
+            "MCP stdio will still start, but the Web UI will be unavailable.",
+            cfg.web_host,
+            cfg.web_port,
+        )
 
     web_thread = threading.Thread(
         target=lambda: uvicorn.run(

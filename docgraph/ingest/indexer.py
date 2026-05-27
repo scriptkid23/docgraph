@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import asyncio
+import json
+import logging
 from pathlib import Path
 
 from docgraph.config import Config
@@ -13,6 +15,8 @@ from docgraph.models import DocumentStatus, SourceType
 from docgraph.store.chroma import ChromaStore
 from docgraph.store.files import FileStore
 from docgraph.store.sqlite import SQLiteStore
+
+logger = logging.getLogger(__name__)
 
 
 class Indexer:
@@ -65,6 +69,12 @@ class Indexer:
             )
             if not chunks:
                 raise ValueError("no chunks produced from document")
+            if len(chunks) > self._cfg.max_chunks_per_doc:
+                raise ValueError(
+                    f"document exceeds max_chunks_per_doc "
+                    f"({len(chunks)} > {self._cfg.max_chunks_per_doc}); "
+                    f"increase DOCGRAPH_MAX_CHUNKS_PER_DOC or split the source"
+                )
 
             self._progress(
                 doc_id,
@@ -79,7 +89,8 @@ class Indexer:
                     "doc_id": doc_id,
                     "filename": doc.filename,
                     "folder": doc.folder,
-                    "tags": ",".join(doc.tags),
+                    # JSON-encoded so tags containing commas survive round-tripping.
+                    "tags": json.dumps(doc.tags),
                     "chunk_index": i,
                 }
                 if doc.source_url:
@@ -109,10 +120,16 @@ class Indexer:
         doc = self._sqlite.get_document(doc_id)
         if doc is None:
             raise ValueError(f"document not found: {doc_id}")
+        logger.info(
+            "indexing file doc_id=%s path=%s", doc_id, original_path.name
+        )
         try:
             self._progress(doc_id, 5, "Converting to text (5%)")
             markdown = await asyncio.to_thread(
                 convert_file_to_markdown, original_path
+            )
+            logger.debug(
+                "converted doc_id=%s markdown_chars=%d", doc_id, len(markdown)
             )
             self._progress(doc_id, 20, "Converted to markdown (20%)")
             await self.index_markdown(doc_id, markdown)
@@ -143,9 +160,16 @@ class Indexer:
         doc = self._sqlite.get_document(doc_id)
         if doc is None:
             raise ValueError(f"document not found: {doc_id}")
+        logger.info("indexing url doc_id=%s url=%s", doc_id, url)
         try:
             self._progress(doc_id, 5, "Fetching page (5%)")
             markdown, title = await crawler.crawl(url)
+            logger.debug(
+                "crawled doc_id=%s title=%r markdown_chars=%d",
+                doc_id,
+                title,
+                len(markdown),
+            )
             self._sqlite.update_filename(doc_id, title)
             self._progress(doc_id, 20, "Converted to markdown (20%)")
             await self.index_markdown(doc_id, markdown)
@@ -166,7 +190,8 @@ class Indexer:
                 try:
                     await self._index_url_with_crawler(doc_id, url, crawler)
                 except Exception:
-                    pass
+                    # _index_url_with_crawler records ERROR status; continue to next URL.
+                    logger.exception("URL index failed for doc_id=%s url=%s", doc_id, url)
 
     async def reindex_document(self, doc_id: str) -> None:
         doc = self._sqlite.get_document(doc_id)

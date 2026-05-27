@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 from typing import Any, Optional
 
 import chromadb
@@ -8,6 +9,23 @@ from docgraph.config import Config
 
 
 COLLECTION_NAME = "docgraph_chunks"
+
+
+def _decode_tags(raw: Any) -> list[str]:
+    """Decode tags metadata. Current writes are JSON; legacy chunks are CSV."""
+    if not raw:
+        return []
+    if isinstance(raw, list):
+        return [str(t) for t in raw]
+    s = str(raw)
+    if s.startswith("["):
+        try:
+            value = json.loads(s)
+            if isinstance(value, list):
+                return [str(t) for t in value]
+        except json.JSONDecodeError:
+            pass
+    return [t for t in s.split(",") if t]
 
 
 class ChromaStore:
@@ -33,7 +51,7 @@ class ChromaStore:
         query_embedding: list[float],
         top_k: int = 5,
         folder: Optional[str] = None,
-        tag: Optional[str] = None,
+        tags: Optional[list[str]] = None,
     ) -> list[dict[str, Any]]:
         where: dict[str, Any] = {}
         if folder:
@@ -48,11 +66,11 @@ class ChromaStore:
         out: list[dict[str, Any]] = []
         if not result["ids"] or not result["ids"][0]:
             return out
+        required_tags = set(tags or ())
         for i, chunk_id in enumerate(result["ids"][0]):
             meta = result["metadatas"][0][i]
-            tags_str = meta.get("tags", "")
-            tags = [t for t in tags_str.split(",") if t]
-            if tag and tag not in tags:
+            chunk_tags = _decode_tags(meta.get("tags", ""))
+            if required_tags and not required_tags.issubset(chunk_tags):
                 continue
             dist = result["distances"][0][i] if result.get("distances") else 0.0
             score = 1.0 - dist
@@ -62,7 +80,7 @@ class ChromaStore:
                 "doc_id": meta.get("doc_id", ""),
                 "filename": meta.get("filename", ""),
                 "folder": meta.get("folder", ""),
-                "tags": tags,
+                "tags": chunk_tags,
                 "chunk_index": int(meta.get("chunk_index", 0)),
                 "score": score,
                 "source_page": meta.get("source_page"),

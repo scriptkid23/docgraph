@@ -112,6 +112,7 @@ Then in Cursor chat:
 | `DOCGRAPH_OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model |
 | `DOCGRAPH_CRAWL_TIMEOUT_SEC` | `30` | Per-URL crawl timeout |
 | `DOCGRAPH_MAX_URLS_PER_IMPORT` | `50` | Max URLs per import batch |
+| `DOCGRAPH_MAX_CHUNKS_PER_DOC` | `5000` | Hard cap on chunks per document (oversize → ERROR) |
 
 See [v2 design spec](docs/superpowers/specs/2026-05-26-docgraph-v2-rag-design.md) and [implementation plans](docs/superpowers/plans/2026-05-26-docgraph-v2-index.md).
 

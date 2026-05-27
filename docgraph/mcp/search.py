@@ -27,16 +27,19 @@ class SearchService:
         query: str,
         top_k: Optional[int] = None,
         folder: Optional[str] = None,
-        tag: Optional[str] = None,
+        tags: Optional[list[str]] = None,
     ) -> list[SearchResult]:
         k = top_k or self._cfg.default_top_k
         vectors = await self._embedder.embed([query])
+        # Overfetch so the min_score filter doesn't starve the caller of results
+        # when high-quality matches exist beyond the top_k cutoff.
         raw = self._chroma.search(
             query_embedding=vectors[0],
-            top_k=k,
+            top_k=max(k * 3, k),
             folder=folder,
-            tag=tag,
+            tags=tags,
         )
+        filtered = [r for r in raw if r["score"] >= self._cfg.min_score]
         return [
             SearchResult(
                 text=r["text"],
@@ -48,6 +51,5 @@ class SearchService:
                 score=r["score"],
                 source_page=r.get("source_page"),
             )
-            for r in raw
-            if r["score"] >= self._cfg.min_score
+            for r in filtered[:k]
         ]

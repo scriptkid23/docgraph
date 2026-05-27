@@ -21,7 +21,7 @@ def normalize_ollama_url(url: str) -> str:
 class Config:
     data_dir: Path
     web_host: str = "127.0.0.1"
-    web_port: int = 8088
+    web_port: int = 8080
     embed_provider: str = "ollama"
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "nomic-embed-text:latest"
@@ -34,6 +34,7 @@ class Config:
     min_score: float = 0.3
     crawl_timeout_sec: int = 30
     max_urls_per_import: int = 50
+    max_chunks_per_doc: int = 5000
 
     @property
     def sqlite_path(self) -> Path:
@@ -75,6 +76,9 @@ def _apply_yaml(cfg: Config, data: dict[str, Any]) -> None:
         cfg.chunk_size = int(ingest.get("chunk_size", cfg.chunk_size))
         cfg.chunk_overlap = int(ingest.get("chunk_overlap", cfg.chunk_overlap))
         cfg.max_file_size_mb = int(ingest.get("max_file_size_mb", cfg.max_file_size_mb))
+        cfg.max_chunks_per_doc = int(
+            ingest.get("max_chunks_per_doc", cfg.max_chunks_per_doc)
+        )
     if crawl := data.get("crawl"):
         cfg.crawl_timeout_sec = int(crawl.get("timeout_sec", cfg.crawl_timeout_sec))
         cfg.max_urls_per_import = int(crawl.get("max_urls_per_import", cfg.max_urls_per_import))
@@ -100,6 +104,8 @@ def _apply_env(cfg: Config) -> None:
         cfg.chunk_size = int(v)
     if v := os.getenv("DOCGRAPH_MAX_FILE_MB"):
         cfg.max_file_size_mb = int(v)
+    if v := os.getenv("DOCGRAPH_MAX_CHUNKS_PER_DOC"):
+        cfg.max_chunks_per_doc = int(v)
     if v := os.getenv("DOCGRAPH_CRAWL_TIMEOUT_SEC"):
         cfg.crawl_timeout_sec = int(v)
     if v := os.getenv("DOCGRAPH_MAX_URLS_PER_IMPORT"):

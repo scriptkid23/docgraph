@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import uuid
 from pathlib import Path
 
@@ -13,6 +14,7 @@ from docgraph.models import DocumentRecord, DocumentStatus, SourceType
 from docgraph.web.deps import AppState
 
 STATIC_DIR = Path(__file__).parent / "static"
+logger = logging.getLogger(__name__)
 
 
 def _doc_to_json(doc: DocumentRecord) -> dict:
@@ -38,10 +40,12 @@ class ImportUrlsBody(BaseModel):
 
 
 async def _run_index(state: AppState, doc_id: str, original_path: Path) -> None:
+    # index_document already records ERROR status to SQLite; we log so operators
+    # see the traceback rather than only the truncated DB error_message.
     try:
         await state.indexer().index_document(doc_id, original_path)
     except Exception:
-        pass
+        logger.exception("indexing failed for doc_id=%s", doc_id)
 
 
 async def _run_import_urls(
@@ -50,7 +54,7 @@ async def _run_import_urls(
     try:
         await state.indexer().index_urls_batch(items)
     except Exception:
-        pass
+        logger.exception("URL batch import failed (%d items)", len(items))
 
 
 def create_app(

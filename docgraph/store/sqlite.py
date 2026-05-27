@@ -15,6 +15,10 @@ class SQLiteStore:
     def _connect(self) -> sqlite3.Connection:
         conn = sqlite3.connect(self._path)
         conn.row_factory = sqlite3.Row
+        # WAL lets the UI poll /api/documents while the indexer writes progress
+        # without lock contention. NORMAL sync is safe enough for a local tool.
+        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute("PRAGMA synchronous=NORMAL")
         return conn
 
     def _migrate_schema(self, conn: sqlite3.Connection) -> None:
@@ -55,6 +59,9 @@ class SQLiteStore:
                     source_url TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT (datetime('now'))
                 );
+                CREATE INDEX IF NOT EXISTS idx_documents_folder ON documents(folder);
+                CREATE INDEX IF NOT EXISTS idx_documents_created_at ON documents(created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status);
             """)
             self._migrate_schema(conn)
 
@@ -138,18 +145,29 @@ class SQLiteStore:
         error_message: Optional[str] = None,
         markdown_path: str = "",
     ) -> None:
-        progress_pct = 100 if status == DocumentStatus.READY else 0
-        progress_phase = "" if status != DocumentStatus.PROCESSING else ""
         with self._connect() as conn:
-            conn.execute(
-                """UPDATE documents SET status=?, chunk_count=?,
-                   error_message=?, markdown_path=?, progress_pct=?, progress_phase=?
-                   WHERE id=?""",
-                (
-                    status.value, chunk_count, error_message, markdown_path,
-                    progress_pct, progress_phase, doc_id,
-                ),
-            )
+            if status == DocumentStatus.READY:
+                conn.execute(
+                    """UPDATE documents SET status=?, chunk_count=?,
+                       error_message=?, markdown_path=?, progress_pct=100, progress_phase=''
+                       WHERE id=?""",
+                    (status.value, chunk_count, error_message, markdown_path, doc_id),
+                )
+            elif status == DocumentStatus.ERROR:
+                # Preserve last progress_phase so the UI shows where indexing failed.
+                conn.execute(
+                    """UPDATE documents SET status=?, chunk_count=?,
+                       error_message=?, markdown_path=?
+                       WHERE id=?""",
+                    (status.value, chunk_count, error_message, markdown_path, doc_id),
+                )
+            else:
+                conn.execute(
+                    """UPDATE documents SET status=?, chunk_count=?,
+                       error_message=?, markdown_path=?, progress_pct=0, progress_phase=''
+                       WHERE id=?""",
+                    (status.value, chunk_count, error_message, markdown_path, doc_id),
+                )
 
     def update_tags_folder(self, doc_id: str, tags: list[str], folder: str) -> None:
         with self._connect() as conn:
