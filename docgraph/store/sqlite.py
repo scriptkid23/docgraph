@@ -5,7 +5,7 @@ import sqlite3
 from typing import Optional
 
 from docgraph.config import Config
-from docgraph.models import DocumentRecord, DocumentStatus
+from docgraph.models import DocumentRecord, DocumentStatus, SourceType
 
 
 class SQLiteStore:
@@ -27,6 +27,14 @@ class SQLiteStore:
             conn.execute(
                 "ALTER TABLE documents ADD COLUMN progress_phase TEXT NOT NULL DEFAULT ''"
             )
+        if "source_type" not in cols:
+            conn.execute(
+                "ALTER TABLE documents ADD COLUMN source_type TEXT NOT NULL DEFAULT 'file'"
+            )
+        if "source_url" not in cols:
+            conn.execute(
+                "ALTER TABLE documents ADD COLUMN source_url TEXT NOT NULL DEFAULT ''"
+            )
 
     def init_schema(self) -> None:
         with self._connect() as conn:
@@ -43,6 +51,8 @@ class SQLiteStore:
                     error_message TEXT,
                     original_path TEXT NOT NULL DEFAULT '',
                     markdown_path TEXT NOT NULL DEFAULT '',
+                    source_type TEXT NOT NULL DEFAULT 'file',
+                    source_url TEXT NOT NULL DEFAULT '',
                     created_at TEXT NOT NULL DEFAULT (datetime('now'))
                 );
             """)
@@ -53,13 +63,15 @@ class SQLiteStore:
             conn.execute(
                 """INSERT INTO documents
                    (id, filename, folder, tags, status, chunk_count, progress_pct,
-                    progress_phase, error_message, original_path, markdown_path)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    progress_phase, error_message, original_path, markdown_path,
+                    source_type, source_url)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     doc.id, doc.filename, doc.folder, json.dumps(doc.tags),
                     doc.status.value, doc.chunk_count, doc.progress_pct,
                     doc.progress_phase, doc.error_message,
                     doc.original_path, doc.markdown_path,
+                    doc.source_type.value, doc.source_url,
                 ),
             )
 
@@ -77,6 +89,8 @@ class SQLiteStore:
             error_message=row["error_message"],
             original_path=row["original_path"],
             markdown_path=row["markdown_path"],
+            source_type=SourceType(row["source_type"]) if "source_type" in keys else SourceType.FILE,
+            source_url=row["source_url"] if "source_url" in keys else "",
         )
 
     def get_document(self, doc_id: str) -> Optional[DocumentRecord]:
@@ -142,6 +156,13 @@ class SQLiteStore:
             conn.execute(
                 "UPDATE documents SET tags=?, folder=? WHERE id=?",
                 (json.dumps(tags), folder, doc_id),
+            )
+
+    def update_filename(self, doc_id: str, filename: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE documents SET filename=? WHERE id=?",
+                (filename, doc_id),
             )
 
     def delete_document(self, doc_id: str) -> None:

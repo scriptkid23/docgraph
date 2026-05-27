@@ -11,6 +11,11 @@ class DocumentStatus(str, Enum):
     ERROR = "error"
 
 
+class SourceType(str, Enum):
+    FILE = "file"
+    URL = "url"
+
+
 @dataclass
 class DocumentRecord:
     id: str
@@ -24,6 +29,8 @@ class DocumentRecord:
     error_message: Optional[str] = None
     original_path: str = ""
     markdown_path: str = ""
+    source_type: SourceType = SourceType.FILE
+    source_url: str = ""
 
 
 @dataclass

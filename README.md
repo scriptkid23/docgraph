@@ -14,7 +14,16 @@ Local document RAG server for Cursor via MCP. Upload files through a Web UI, ind
 ```bash
 poetry install
 poetry install -E openai   # optional: cloud embedding
+poetry install -E crawl    # optional: import URLs via crawl4ai
 ollama pull nomic-embed-text
+```
+
+For URL import, install the crawl extra and set up the browser:
+
+```bash
+poetry install -E crawl
+poetry run crawl4ai-setup
+# or: python -m playwright install chromium
 ```
 
 ## Run
@@ -23,7 +32,7 @@ ollama pull nomic-embed-text
 poetry run docgraph serve
 ```
 
-- Web UI: http://127.0.0.1:8080 (React — upload and manage documents)
+- Web UI: http://127.0.0.1:8080 (React — upload files, import URLs, manage documents)
 
 ### Web UI development (React + Vite)
 
@@ -101,6 +110,8 @@ Then in Cursor chat:
 | `DOCGRAPH_EMBED_PROVIDER` | `ollama` | `ollama` or `openai` |
 | `DOCGRAPH_OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama endpoint (use `127.0.0.1` on Windows, not `localhost`) |
 | `DOCGRAPH_OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model |
+| `DOCGRAPH_CRAWL_TIMEOUT_SEC` | `30` | Per-URL crawl timeout |
+| `DOCGRAPH_MAX_URLS_PER_IMPORT` | `50` | Max URLs per import batch |
 
 See [v2 design spec](docs/superpowers/specs/2026-05-26-docgraph-v2-rag-design.md) and [implementation plans](docs/superpowers/plans/2026-05-26-docgraph-v2-index.md).
 

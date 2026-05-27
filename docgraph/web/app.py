@@ -5,9 +5,11 @@ from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.staticfiles import StaticFiles
+from pydantic import BaseModel
 
 from docgraph.config import Config
-from docgraph.models import DocumentRecord, DocumentStatus
+from docgraph.ingest.urls import parse_url_lines, url_display_name, validate_url
+from docgraph.models import DocumentRecord, DocumentStatus, SourceType
 from docgraph.web.deps import AppState
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -24,12 +26,29 @@ def _doc_to_json(doc: DocumentRecord) -> dict:
         "progress_pct": doc.progress_pct,
         "progress_phase": doc.progress_phase,
         "error_message": doc.error_message,
+        "source_type": doc.source_type.value,
+        "source_url": doc.source_url,
     }
+
+
+class ImportUrlsBody(BaseModel):
+    urls: str
+    folder: str = ""
+    tags: str = ""
 
 
 async def _run_index(state: AppState, doc_id: str, original_path: Path) -> None:
     try:
         await state.indexer().index_document(doc_id, original_path)
+    except Exception:
+        pass
+
+
+async def _run_import_urls(
+    state: AppState, items: list[tuple[str, str]]
+) -> None:
+    try:
+        await state.indexer().index_urls_batch(items)
     except Exception:
         pass
 
@@ -99,6 +118,47 @@ def create_app(
         st.sqlite.update_progress(doc_id, 0, "Queued for indexing (0%)")
         background_tasks.add_task(_run_index, st, doc_id, orig_path)
         return {"doc_id": doc_id, "status": "processing"}
+
+    @app.post("/api/documents/import-urls", status_code=202)
+    async def import_urls(
+        request: Request,
+        body: ImportUrlsBody,
+        background_tasks: BackgroundTasks,
+    ):
+        st: AppState = request.app.state.docgraph
+        raw_urls = parse_url_lines(body.urls)
+        if not raw_urls:
+            raise HTTPException(status_code=400, detail="no urls provided")
+        if len(raw_urls) > st.cfg.max_urls_per_import:
+            raise HTTPException(
+                status_code=400,
+                detail=f"too many urls (max {st.cfg.max_urls_per_import})",
+            )
+        try:
+            url_list = [validate_url(u) for u in raw_urls]
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+        tag_list = [t.strip() for t in body.tags.split(",") if t.strip()]
+        doc_ids: list[str] = []
+        items: list[tuple[str, str]] = []
+        for url in url_list:
+            doc_id = f"doc_{uuid.uuid4().hex[:12]}"
+            doc = DocumentRecord(
+                id=doc_id,
+                filename=url_display_name(url),
+                folder=body.folder,
+                tags=tag_list,
+                source_type=SourceType.URL,
+                source_url=url,
+            )
+            st.sqlite.insert_document(doc)
+            st.sqlite.update_progress(doc_id, 0, "Queued for crawling (0%)")
+            doc_ids.append(doc_id)
+            items.append((doc_id, url))
+
+        background_tasks.add_task(_run_import_urls, st, items)
+        return {"queued": len(doc_ids), "doc_ids": doc_ids}
 
     @app.delete("/api/documents/{doc_id}")
     async def delete_document(request: Request, doc_id: str):

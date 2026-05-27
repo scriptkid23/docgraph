@@ -278,6 +278,38 @@
   opacity: 0.5;
 }
 
+.field textarea.url-textarea {
+  width: 100%;
+  padding: 0.75rem;
+  border: var(--border-medium);
+  border-radius: var(--radius);
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 0.85rem;
+  line-height: 1.5;
+  color: var(--foreground);
+  resize: vertical;
+  min-height: 8rem;
+}
+
+.field textarea.url-textarea::placeholder {
+  color: var(--muted-foreground);
+  font-style: italic;
+}
+
+.field textarea.url-textarea:focus {
+  outline: none;
+  border-width: 2px;
+}
+
+.field textarea.url-textarea:disabled {
+  opacity: 0.5;
+}
+
+.import-actions {
+  margin-top: 1.25rem;
+}
+
 /* —— Progress (line-based) —— */
 .progress-track {
   height: 4px;

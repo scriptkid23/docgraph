@@ -10,6 +10,8 @@ export interface Document {
   progress_pct: number;
   progress_phase: string;
   error_message: string | null;
+  source_type?: "file" | "url";
+  source_url?: string;
 }
 
 export interface HealthInfo {

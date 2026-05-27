@@ -32,6 +32,8 @@ class Config:
     max_file_size_mb: int = 50
     default_top_k: int = 5
     min_score: float = 0.3
+    crawl_timeout_sec: int = 30
+    max_urls_per_import: int = 50
 
     @property
     def sqlite_path(self) -> Path:
@@ -73,6 +75,9 @@ def _apply_yaml(cfg: Config, data: dict[str, Any]) -> None:
         cfg.chunk_size = int(ingest.get("chunk_size", cfg.chunk_size))
         cfg.chunk_overlap = int(ingest.get("chunk_overlap", cfg.chunk_overlap))
         cfg.max_file_size_mb = int(ingest.get("max_file_size_mb", cfg.max_file_size_mb))
+    if crawl := data.get("crawl"):
+        cfg.crawl_timeout_sec = int(crawl.get("timeout_sec", cfg.crawl_timeout_sec))
+        cfg.max_urls_per_import = int(crawl.get("max_urls_per_import", cfg.max_urls_per_import))
     if search := data.get("search"):
         cfg.default_top_k = int(search.get("default_top_k", cfg.default_top_k))
         cfg.min_score = float(search.get("min_score", cfg.min_score))
@@ -95,6 +100,10 @@ def _apply_env(cfg: Config) -> None:
         cfg.chunk_size = int(v)
     if v := os.getenv("DOCGRAPH_MAX_FILE_MB"):
         cfg.max_file_size_mb = int(v)
+    if v := os.getenv("DOCGRAPH_CRAWL_TIMEOUT_SEC"):
+        cfg.crawl_timeout_sec = int(v)
+    if v := os.getenv("DOCGRAPH_MAX_URLS_PER_IMPORT"):
+        cfg.max_urls_per_import = int(v)
 
 
 def load_config() -> Config:

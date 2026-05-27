@@ -69,3 +69,41 @@ async def test_upload_rejects_oversized(app):
             files={"file": ("big.md", io.BytesIO(b"x" * 100), "text/markdown")},
         )
     assert resp.status_code == 413
+
+
+@pytest.mark.asyncio
+async def test_import_urls(app):
+    transport = ASGITransport(app=app)
+    body = {
+        "urls": "https://example.com/a\nhttps://example.com/b",
+        "folder": "web",
+        "tags": "crawl",
+    }
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post("/api/documents/import-urls", json=body)
+    assert resp.status_code == 202
+    data = resp.json()
+    assert data["queued"] == 2
+    assert len(data["doc_ids"]) == 2
+
+
+@pytest.mark.asyncio
+async def test_import_urls_rejects_localhost(app):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/documents/import-urls",
+            json={"urls": "http://localhost/secret"},
+        )
+    assert resp.status_code == 400
+
+
+@pytest.mark.asyncio
+async def test_import_urls_rejects_empty(app):
+    transport = ASGITransport(app=app)
+    async with AsyncClient(transport=transport, base_url="http://test") as client:
+        resp = await client.post(
+            "/api/documents/import-urls",
+            json={"urls": "  \n# only comments\n"},
+        )
+    assert resp.status_code == 400

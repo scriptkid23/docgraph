@@ -32,7 +32,7 @@ export function DocumentTable({
       <div className="section-head">
         <div>
           <p className="label-mono" id="docs-heading">
-            02 — Library
+            03 — Library
           </p>
           <h2 className="section-title">Documents</h2>
         </div>
@@ -41,7 +41,8 @@ export function DocumentTable({
 
       {documents.length === 0 ? (
         <p className="empty-state">
-          No documents yet. Upload a file above to build your knowledge base.
+          No documents yet. Upload a file or import URLs above to build your
+          knowledge base.
         </p>
       ) : (
         <div className="table-panel">
@@ -61,7 +62,7 @@ export function DocumentTable({
                 {documents.map((d) => (
                   <tr key={d.id}>
                     <td className="filename-cell">
-                      <span title={d.filename}>{d.filename}</span>
+                      <span title={d.source_url || d.filename}>{d.filename}</span>
                     </td>
                     <td>{d.folder || "—"}</td>
                     <td>{(d.tags || []).join(", ") || "—"}</td>
