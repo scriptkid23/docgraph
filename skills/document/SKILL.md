@@ -1,9 +1,9 @@
 ---
 name: document
-description: Query uploaded documents via BoostMCP RAG. Use when the user message starts with /document.
+description: Query uploaded documents via DocGraph RAG. Use when the user message starts with /document.
 ---
 
-# /document — Query BoostMCP Knowledge Base
+# /document — Query DocGraph Knowledge Base
 
 When the user's message starts with `/document`, follow this workflow exactly.
 
@@ -11,7 +11,7 @@ When the user's message starts with `/document`, follow this workflow exactly.
 
 - Message begins with `/document` (with or without space after)
 - Example: `/document How do I configure Ollama embedding?`
-- Example: `/document --folder BoostMCP --tag design What changed in v2?`
+- Example: `/document --folder DocGraph --tag design What changed in v2?`
 
 ## Parse Input
 
@@ -23,7 +23,7 @@ When the user's message starts with `/document`, follow this workflow exactly.
 
 ## Required MCP Call
 
-Call `search_documents` on the **boostmcp** MCP server:
+Call `search_documents` on the **docgraph** MCP server:
 
 ```
 search_documents(

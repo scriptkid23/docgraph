@@ -2,7 +2,7 @@ import pytest
 import httpx
 import respx
 
-from boostmcp.embed.ollama import OllamaEmbedder
+from docgraph.embed.ollama import OllamaEmbedder
 
 
 @respx.mock

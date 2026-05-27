@@ -147,7 +147,7 @@ export function UploadSection({ onUploaded }: UploadSectionProps) {
             type="text"
             value={folder}
             onChange={(e) => setFolder(e.target.value)}
-            placeholder="e.g. BoostMCP"
+            placeholder="e.g. DocGraph"
             disabled={busy}
           />
         </div>

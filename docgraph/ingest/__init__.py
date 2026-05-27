@@ -1,3 +1,3 @@
-from boostmcp.ingest.indexer import Indexer
+from docgraph.ingest.indexer import Indexer
 
 __all__ = ["Indexer"]

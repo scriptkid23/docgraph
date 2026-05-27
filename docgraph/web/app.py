@@ -6,9 +6,9 @@ from pathlib import Path
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.staticfiles import StaticFiles
 
-from boostmcp.config import Config
-from boostmcp.models import DocumentRecord, DocumentStatus
-from boostmcp.web.deps import AppState
+from docgraph.config import Config
+from docgraph.models import DocumentRecord, DocumentStatus
+from docgraph.web.deps import AppState
 
 STATIC_DIR = Path(__file__).parent / "static"
 
@@ -42,12 +42,12 @@ def create_app(
 ) -> FastAPI:
     if state is None:
         state = AppState.create(cfg)
-    app = FastAPI(title="BoostMCP", version="2.0.0")
-    app.state.boostmcp = state
+    app = FastAPI(title="DocGraph", version="2.0.0")
+    app.state.docgraph = state
 
     @app.get("/api/health")
     async def health(request: Request):
-        st: AppState = request.app.state.boostmcp
+        st: AppState = request.app.state.docgraph
         ollama_ok = True
         ollama_error = ""
         try:
@@ -65,7 +65,7 @@ def create_app(
 
     @app.get("/api/documents")
     async def list_documents(request: Request, folder: str | None = None):
-        st: AppState = request.app.state.boostmcp
+        st: AppState = request.app.state.docgraph
         docs = st.sqlite.list_documents(folder=folder)
         return [_doc_to_json(d) for d in docs]
 
@@ -77,7 +77,7 @@ def create_app(
         folder: str = Form(""),
         tags: str = Form(""),
     ):
-        st: AppState = request.app.state.boostmcp
+        st: AppState = request.app.state.docgraph
         content = await file.read()
         max_bytes = st.cfg.max_file_size_mb * 1024 * 1024
         if len(content) > max_bytes:
@@ -102,7 +102,7 @@ def create_app(
 
     @app.delete("/api/documents/{doc_id}")
     async def delete_document(request: Request, doc_id: str):
-        st: AppState = request.app.state.boostmcp
+        st: AppState = request.app.state.docgraph
         doc = st.sqlite.get_document(doc_id)
         if doc is None:
             raise HTTPException(status_code=404, detail="not found")
@@ -118,7 +118,7 @@ def create_app(
         folder: str = Form(""),
         tags: str = Form(""),
     ):
-        st: AppState = request.app.state.boostmcp
+        st: AppState = request.app.state.docgraph
         doc = st.sqlite.get_document(doc_id)
         if doc is None:
             raise HTTPException(status_code=404, detail="not found")
@@ -132,7 +132,7 @@ def create_app(
         doc_id: str,
         background_tasks: BackgroundTasks,
     ):
-        st: AppState = request.app.state.boostmcp
+        st: AppState = request.app.state.docgraph
         doc = st.sqlite.get_document(doc_id)
         if doc is None:
             raise HTTPException(status_code=404, detail="not found")
@@ -140,7 +140,7 @@ def create_app(
         return {"doc_id": doc_id, "status": "processing"}
 
     if mount_mcp:
-        from boostmcp.mcp.server import create_mcp_server
+        from docgraph.mcp.server import create_mcp_server
 
         mcp = create_mcp_server(state)
         app.mount("/mcp", mcp.sse_app())

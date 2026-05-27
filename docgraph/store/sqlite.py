@@ -4,8 +4,8 @@ import json
 import sqlite3
 from typing import Optional
 
-from boostmcp.config import Config
-from boostmcp.models import DocumentRecord, DocumentStatus
+from docgraph.config import Config
+from docgraph.models import DocumentRecord, DocumentStatus
 
 
 class SQLiteStore:

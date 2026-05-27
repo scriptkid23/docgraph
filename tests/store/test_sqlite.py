@@ -1,6 +1,6 @@
-from boostmcp.config import Config
-from boostmcp.models import DocumentRecord, DocumentStatus
-from boostmcp.store.sqlite import SQLiteStore
+from docgraph.config import Config
+from docgraph.models import DocumentRecord, DocumentStatus
+from docgraph.store.sqlite import SQLiteStore
 
 
 def test_insert_and_get_document(tmp_data_dir):

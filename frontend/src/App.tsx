@@ -89,7 +89,7 @@ export default function App() {
         </main>
         <SectionRule thick />
         <footer className="label-mono" style={{ paddingTop: "1.5rem" }}>
-          BoostMCP · Monochrome editorial interface
+          DocGraph · Monochrome editorial interface
         </footer>
       </div>
     </div>

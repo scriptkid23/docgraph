@@ -1,3 +1,3 @@
-from boostmcp.web.app import create_app
+from docgraph.web.app import create_app
 
 __all__ = ["create_app"]

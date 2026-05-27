@@ -6,9 +6,9 @@ import threading
 
 import uvicorn
 
-from boostmcp.config import load_config
-from boostmcp.web.app import create_app
-from boostmcp.web.deps import AppState
+from docgraph.config import load_config
+from docgraph.web.app import create_app
+from docgraph.web.deps import AppState
 
 
 def _log_startup(cfg, log: logging.Logger, *, mcp_sse: bool) -> None:
@@ -23,7 +23,7 @@ def _log_startup(cfg, log: logging.Logger, *, mcp_sse: bool) -> None:
 
 
 def _health_check(cfg, log: logging.Logger) -> None:
-    from boostmcp.embed.factory import create_embedder
+    from docgraph.embed.factory import create_embedder
 
     embedder = create_embedder(cfg)
     try:
@@ -46,7 +46,7 @@ def _run_http(cfg) -> None:
 
 def _run_stdio(cfg) -> None:
     """Legacy: Web UI in background thread + MCP stdio for Cursor direct launch."""
-    log = logging.getLogger("boostmcp")
+    log = logging.getLogger("docgraph")
     state = AppState.create(cfg)
     app = create_app(cfg, state=state, mount_mcp=False)
 
@@ -55,12 +55,12 @@ def _run_stdio(cfg) -> None:
             app, host=cfg.web_host, port=cfg.web_port, log_level="warning"
         ),
         daemon=True,
-        name="boostmcp-web",
+        name="docgraph-web",
     )
     web_thread.start()
     _log_startup(cfg, log, mcp_sse=False)
 
-    from boostmcp.mcp.server import create_mcp_server
+    from docgraph.mcp.server import create_mcp_server
 
     mcp = create_mcp_server(state)
     mcp.run(transport="stdio")
@@ -70,7 +70,7 @@ def _run_serve(stdio: bool) -> None:
     cfg = load_config()
     cfg.ensure_dirs()
     logging.basicConfig(level=logging.INFO)
-    log = logging.getLogger("boostmcp")
+    log = logging.getLogger("docgraph")
 
     _health_check(cfg, log)
 
@@ -82,7 +82,7 @@ def _run_serve(stdio: bool) -> None:
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(prog="boostmcp")
+    parser = argparse.ArgumentParser(prog="docgraph")
     sub = parser.add_subparsers(dest="command")
     serve_parser = sub.add_parser("serve", help="Start Web UI + MCP server")
     serve_parser.add_argument(

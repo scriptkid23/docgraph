@@ -3,7 +3,7 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-from boostmcp.config import Config
+from docgraph.config import Config
 
 
 def sanitize_filename(name: str) -> str:

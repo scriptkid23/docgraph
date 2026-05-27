@@ -1,6 +1,6 @@
-from boostmcp.config import Config
-from boostmcp.embed.factory import create_embedder
-from boostmcp.embed.ollama import OllamaEmbedder
+from docgraph.config import Config
+from docgraph.embed.factory import create_embedder
+from docgraph.embed.ollama import OllamaEmbedder
 
 
 def test_factory_creates_ollama_by_default(tmp_data_dir):

@@ -4,12 +4,12 @@ import json
 
 from mcp.server.fastmcp import FastMCP
 
-from boostmcp.mcp.search import SearchService
-from boostmcp.web.deps import AppState
+from docgraph.mcp.search import SearchService
+from docgraph.web.deps import AppState
 
 
 def create_mcp_server(state: AppState) -> FastMCP:
-    mcp = FastMCP("boostmcp")
+    mcp = FastMCP("docgraph")
     search_svc = SearchService(
         state.cfg, state.sqlite, state.chroma, state.embedder
     )
@@ -56,7 +56,7 @@ def create_mcp_server(state: AppState) -> FastMCP:
         status: str | None = None,
     ) -> str:
         """List indexed documents with optional filters."""
-        from boostmcp.models import DocumentStatus
+        from docgraph.models import DocumentStatus
 
         doc_status = DocumentStatus(status) if status else None
         docs = state.sqlite.list_documents(

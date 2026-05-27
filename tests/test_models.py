@@ -1,11 +1,11 @@
-from boostmcp.models import DocumentRecord, DocumentStatus, SearchResult
+from docgraph.models import DocumentRecord, DocumentStatus, SearchResult
 
 
 def test_document_record_defaults():
     doc = DocumentRecord(
         id="doc_abc",
         filename="spec.pdf",
-        folder="BoostMCP",
+        folder="DocGraph",
         tags=["design"],
     )
     assert doc.status == DocumentStatus.PROCESSING
@@ -18,7 +18,7 @@ def test_search_result_fields():
         text="hello",
         doc_id="doc_abc",
         filename="spec.pdf",
-        folder="BoostMCP",
+        folder="DocGraph",
         tags=["design"],
         chunk_index=2,
         score=0.87,

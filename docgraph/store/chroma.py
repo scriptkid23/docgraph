@@ -4,10 +4,10 @@ from typing import Any, Optional
 
 import chromadb
 
-from boostmcp.config import Config
+from docgraph.config import Config
 
 
-COLLECTION_NAME = "boostmcp_chunks"
+COLLECTION_NAME = "docgraph_chunks"
 
 
 class ChromaStore:

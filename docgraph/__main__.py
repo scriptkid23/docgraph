@@ -1,3 +1,3 @@
-from boostmcp.cli import main
+from docgraph.cli import main
 
 main()

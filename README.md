@@ -1,4 +1,4 @@
-# BoostMCP
+# DocGraph
 
 Local document RAG server for Cursor via MCP. Upload files through a Web UI, index them with Ollama embeddings, and query your documents in Cursor using the `/document` skill.
 
@@ -20,7 +20,7 @@ ollama pull nomic-embed-text
 ## Run
 
 ```bash
-poetry run boostmcp serve
+poetry run docgraph serve
 ```
 
 - Web UI: http://127.0.0.1:8080 (React — upload and manage documents)
@@ -33,7 +33,7 @@ The UI uses a **Minimalist Monochrome** design system (Playfair Display, Source 
 cd frontend
 npm install
 npm run dev          # http://127.0.0.1:5173 — proxies /api → :8080
-npm run build        # output → boostmcp/web/static/
+npm run build        # output → docgraph/web/static/
 ```
 
 Design tokens live in `frontend/src/styles/`. Run `npm run build` after UI changes.
@@ -43,12 +43,12 @@ Keep this terminal running while using Cursor.
 
 ## Cursor MCP Configuration
 
-**Recommended — server chạy riêng, MCP trỏ HTTP** (chạy `boostmcp serve` trước):
+**Recommended — server chạy riêng, MCP trỏ HTTP** (chạy `docgraph serve` trước):
 
 ```json
 {
   "mcpServers": {
-    "boostmcp": {
+    "docgraph": {
       "command": "npx",
       "args": ["-y", "mcp-remote@latest", "http://127.0.0.1:8080/mcp/sse"]
     }
@@ -61,10 +61,10 @@ Keep this terminal running while using Cursor.
 ```json
 {
   "mcpServers": {
-    "boostmcp": {
+    "docgraph": {
       "command": "poetry",
-      "args": ["run", "boostmcp", "serve", "--stdio"],
-      "cwd": "C:/Users/hoan.do/Documents/project/BoostMCP"
+      "args": ["run", "docgraph", "serve", "--stdio"],
+      "cwd": "C:/Users/hoan.do/Documents/project/DocGraph"
     }
   }
 }
@@ -81,7 +81,7 @@ Then in Cursor chat:
 
 ```
 /document How do I configure the embedding provider?
-/document --folder docs --tag v2 What is BoostMCP v2?
+/document --folder docs --tag v2 What is DocGraph v2?
 ```
 
 ## MCP Tools
@@ -96,13 +96,13 @@ Then in Cursor chat:
 
 | Env Variable | Default | Description |
 |---|---|---|
-| `BOOSTMCP_DATA_DIR` | `~/.boostmcp` | Data directory |
-| `BOOSTMCP_WEB_PORT` | `8080` | Web UI port |
-| `BOOSTMCP_EMBED_PROVIDER` | `ollama` | `ollama` or `openai` |
-| `BOOSTMCP_OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama endpoint (use `127.0.0.1` on Windows, not `localhost`) |
-| `BOOSTMCP_OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model |
+| `DOCGRAPH_DATA_DIR` | `~/.docgraph` | Data directory |
+| `DOCGRAPH_WEB_PORT` | `8080` | Web UI port |
+| `DOCGRAPH_EMBED_PROVIDER` | `ollama` | `ollama` or `openai` |
+| `DOCGRAPH_OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama endpoint (use `127.0.0.1` on Windows, not `localhost`) |
+| `DOCGRAPH_OLLAMA_EMBED_MODEL` | `nomic-embed-text` | Embedding model |
 
-See [v2 design spec](docs/superpowers/specs/2026-05-26-boostmcp-v2-rag-design.md) and [implementation plans](docs/superpowers/plans/2026-05-26-boostmcp-v2-index.md).
+See [v2 design spec](docs/superpowers/specs/2026-05-26-docgraph-v2-rag-design.md) and [implementation plans](docs/superpowers/plans/2026-05-26-docgraph-v2-index.md).
 
 ## Test
 

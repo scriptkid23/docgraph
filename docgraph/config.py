@@ -79,26 +79,26 @@ def _apply_yaml(cfg: Config, data: dict[str, Any]) -> None:
 
 
 def _apply_env(cfg: Config) -> None:
-    if v := os.getenv("BOOSTMCP_DATA_DIR"):
+    if v := os.getenv("DOCGRAPH_DATA_DIR"):
         cfg.data_dir = _expand_path(v)
-    if v := os.getenv("BOOSTMCP_WEB_PORT"):
+    if v := os.getenv("DOCGRAPH_WEB_PORT"):
         cfg.web_port = int(v)
-    if v := os.getenv("BOOSTMCP_EMBED_PROVIDER"):
+    if v := os.getenv("DOCGRAPH_EMBED_PROVIDER"):
         cfg.embed_provider = v
-    if v := os.getenv("BOOSTMCP_OLLAMA_URL"):
+    if v := os.getenv("DOCGRAPH_OLLAMA_URL"):
         cfg.ollama_url = v
-    if v := os.getenv("BOOSTMCP_OLLAMA_EMBED_MODEL"):
+    if v := os.getenv("DOCGRAPH_OLLAMA_EMBED_MODEL"):
         cfg.ollama_model = v
-    if v := os.getenv("BOOSTMCP_OPENAI_API_KEY"):
+    if v := os.getenv("DOCGRAPH_OPENAI_API_KEY"):
         cfg.openai_api_key = v
-    if v := os.getenv("BOOSTMCP_CHUNK_SIZE"):
+    if v := os.getenv("DOCGRAPH_CHUNK_SIZE"):
         cfg.chunk_size = int(v)
-    if v := os.getenv("BOOSTMCP_MAX_FILE_MB"):
+    if v := os.getenv("DOCGRAPH_MAX_FILE_MB"):
         cfg.max_file_size_mb = int(v)
 
 
 def load_config() -> Config:
-    data_dir = _expand_path(os.getenv("BOOSTMCP_DATA_DIR", "~/.boostmcp"))
+    data_dir = _expand_path(os.getenv("DOCGRAPH_DATA_DIR", "~/.docgraph"))
     cfg = Config(data_dir=data_dir)
     yaml_path = cfg.data_dir / "config.yaml"
     if yaml_path.exists():

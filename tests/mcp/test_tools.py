@@ -1,8 +1,8 @@
 import pytest
 
-from boostmcp.config import Config
-from boostmcp.mcp.server import create_mcp_server
-from boostmcp.web.deps import AppState
+from docgraph.config import Config
+from docgraph.mcp.server import create_mcp_server
+from docgraph.web.deps import AppState
 
 
 @pytest.mark.asyncio

@@ -3,11 +3,11 @@ import httpx
 import respx
 from pathlib import Path
 
-from boostmcp.config import Config
-from boostmcp.embed.ollama import OllamaEmbedder
-from boostmcp.ingest.indexer import Indexer
-from boostmcp.models import DocumentRecord, DocumentStatus
-from boostmcp.store import ChromaStore, FileStore, SQLiteStore
+from docgraph.config import Config
+from docgraph.embed.ollama import OllamaEmbedder
+from docgraph.ingest.indexer import Indexer
+from docgraph.models import DocumentRecord, DocumentStatus
+from docgraph.store import ChromaStore, FileStore, SQLiteStore
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 

@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from boostmcp.config import Config
-from boostmcp.embed.factory import create_embedder
-from boostmcp.embed.provider import EmbeddingProvider
-from boostmcp.ingest.indexer import Indexer
-from boostmcp.store import ChromaStore, FileStore, SQLiteStore
+from docgraph.config import Config
+from docgraph.embed.factory import create_embedder
+from docgraph.embed.provider import EmbeddingProvider
+from docgraph.ingest.indexer import Indexer
+from docgraph.store import ChromaStore, FileStore, SQLiteStore
 
 
 @dataclass

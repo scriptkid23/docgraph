@@ -1,7 +1,7 @@
 from pathlib import Path
 
-from boostmcp.config import Config
-from boostmcp.store.files import FileStore, sanitize_filename
+from docgraph.config import Config
+from docgraph.store.files import FileStore, sanitize_filename
 
 
 def test_sanitize_filename():

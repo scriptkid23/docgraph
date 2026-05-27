@@ -1,3 +1,3 @@
 # Sample
 
-This is a test document for BoostMCP ingest.
+This is a test document for DocGraph ingest.

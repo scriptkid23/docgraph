@@ -5,9 +5,9 @@ import httpx
 import respx
 from httpx import ASGITransport, AsyncClient
 
-from boostmcp.config import Config
-from boostmcp.mcp.search import SearchService
-from boostmcp.web.app import create_app
+from docgraph.config import Config
+from docgraph.mcp.search import SearchService
+from docgraph.web.app import create_app
 
 
 @pytest.mark.asyncio
@@ -21,7 +21,7 @@ async def test_upload_then_search_e2e(tmp_data_dir):
         return_value=httpx.Response(200, json={"embeddings": [vec]})
     )
 
-    content = b"# BoostMCP v2\n\nDocument RAG with Ollama embedding."
+    content = b"# DocGraph v2\n\nDocument RAG with Ollama embedding."
     transport = ASGITransport(app=app)
 
     async with AsyncClient(transport=transport, base_url="http://test") as client:
@@ -45,7 +45,7 @@ async def test_upload_then_search_e2e(tmp_data_dir):
         assert doc["status"] == "ready"
         assert doc["chunk_count"] >= 1
 
-    st = app.state.boostmcp
+    st = app.state.docgraph
     svc = SearchService(cfg, st.sqlite, st.chroma, st.embedder)
     results = await svc.search("Ollama embedding", folder="docs")
     assert len(results) >= 1

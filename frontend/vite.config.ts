@@ -5,7 +5,7 @@ import path from "path";
 export default defineConfig({
   plugins: [react()],
   build: {
-    outDir: path.resolve(__dirname, "../boostmcp/web/static"),
+    outDir: path.resolve(__dirname, "../docgraph/web/static"),
     emptyOutDir: true,
   },
   server: {

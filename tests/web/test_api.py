@@ -3,8 +3,8 @@ import io
 import pytest
 from httpx import ASGITransport, AsyncClient
 
-from boostmcp.config import Config
-from boostmcp.web.app import create_app
+from docgraph.config import Config
+from docgraph.web.app import create_app
 
 
 @pytest.fixture
@@ -61,7 +61,7 @@ async def test_upload_document(app):
 
 @pytest.mark.asyncio
 async def test_upload_rejects_oversized(app):
-    app.state.boostmcp.cfg.max_file_size_mb = 0
+    app.state.docgraph.cfg.max_file_size_mb = 0
     transport = ASGITransport(app=app)
     async with AsyncClient(transport=transport, base_url="http://test") as client:
         resp = await client.post(

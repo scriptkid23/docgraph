@@ -2,11 +2,11 @@ import pytest
 import httpx
 import respx
 
-from boostmcp.config import Config
-from boostmcp.embed.ollama import OllamaEmbedder
-from boostmcp.mcp.search import SearchService
-from boostmcp.models import DocumentRecord
-from boostmcp.store import ChromaStore, SQLiteStore
+from docgraph.config import Config
+from docgraph.embed.ollama import OllamaEmbedder
+from docgraph.mcp.search import SearchService
+from docgraph.models import DocumentRecord
+from docgraph.store import ChromaStore, SQLiteStore
 
 
 @pytest.mark.asyncio

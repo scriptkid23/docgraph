@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import httpx
 
-from boostmcp.config import normalize_ollama_url
+from docgraph.config import normalize_ollama_url
 
 # Batch to avoid huge single /api/embed payloads (large PDFs → many chunks).
 EMBED_BATCH_SIZE = 24
@@ -13,7 +13,7 @@ class OllamaEmbedder:
     HEALTH_MSG = (
         "Cannot reach Ollama for embeddings. "
         "Start Ollama, run: ollama pull nomic-embed-text, "
-        "and set BOOSTMCP_OLLAMA_URL=http://127.0.0.1:11434 (not localhost on Windows)."
+        "and set DOCGRAPH_OLLAMA_URL=http://127.0.0.1:11434 (not localhost on Windows)."
     )
 
     def __init__(self, base_url: str, model: str) -> None:

@@ -3,7 +3,7 @@ from unittest.mock import patch
 
 import pytest
 
-from boostmcp.ingest.converter import _convert_pdf, convert_file_to_markdown
+from docgraph.ingest.converter import _convert_pdf, convert_file_to_markdown
 
 FIXTURES = Path(__file__).parent.parent / "fixtures"
 
@@ -19,11 +19,11 @@ def test_convert_pdf_falls_back_to_pymupdf(tmp_path):
     pdf.write_bytes(b"%PDF-1.4 fake")
 
     with patch(
-        "boostmcp.ingest.converter._convert_markitdown",
+        "docgraph.ingest.converter._convert_markitdown",
         side_effect=RuntimeError("Invalid octal"),
     ):
         with patch(
-            "boostmcp.ingest.converter._pdf_via_pymupdf",
+            "docgraph.ingest.converter._pdf_via_pymupdf",
             return_value="# Chapter 1\n\nNeural networks.",
         ) as pymupdf_mock:
             text = _convert_pdf(pdf)
@@ -37,11 +37,11 @@ def test_convert_pdf_raises_when_all_backends_fail(tmp_path):
     pdf.write_bytes(b"%PDF-1.4")
 
     with patch(
-        "boostmcp.ingest.converter._convert_markitdown",
+        "docgraph.ingest.converter._convert_markitdown",
         side_effect=RuntimeError("markitdown fail"),
     ):
         with patch(
-            "boostmcp.ingest.converter._pdf_via_pymupdf",
+            "docgraph.ingest.converter._pdf_via_pymupdf",
             side_effect=ValueError("no text"),
         ):
             with pytest.raises(ValueError, match="could not convert PDF"):

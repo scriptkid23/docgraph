@@ -5,10 +5,10 @@
 *.so
 *.dylib
 # Root-level binary artifact (not the Python package directory)
-/boostmcp
-!/boostmcp/
-!/boostmcp/**
-/boostmcp.exe
+/docgraph
+!/docgraph/
+!/docgraph/**
+/docgraph.exe
 
 # Python
 .venv/

@@ -3,15 +3,15 @@ from __future__ import annotations
 import asyncio
 from pathlib import Path
 
-from boostmcp.config import Config
-from boostmcp.embed.ollama import EMBED_BATCH_SIZE
-from boostmcp.embed.provider import EmbeddingProvider
-from boostmcp.ingest.chunker import chunk_markdown
-from boostmcp.ingest.converter import convert_file_to_markdown
-from boostmcp.models import DocumentStatus
-from boostmcp.store.chroma import ChromaStore
-from boostmcp.store.files import FileStore
-from boostmcp.store.sqlite import SQLiteStore
+from docgraph.config import Config
+from docgraph.embed.ollama import EMBED_BATCH_SIZE
+from docgraph.embed.provider import EmbeddingProvider
+from docgraph.ingest.chunker import chunk_markdown
+from docgraph.ingest.converter import convert_file_to_markdown
+from docgraph.models import DocumentStatus
+from docgraph.store.chroma import ChromaStore
+from docgraph.store.files import FileStore
+from docgraph.store.sqlite import SQLiteStore
 
 
 class Indexer:

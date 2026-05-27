@@ -2,11 +2,11 @@ from __future__ import annotations
 
 from typing import Optional
 
-from boostmcp.config import Config
-from boostmcp.embed.provider import EmbeddingProvider
-from boostmcp.models import SearchResult
-from boostmcp.store.chroma import ChromaStore
-from boostmcp.store.sqlite import SQLiteStore
+from docgraph.config import Config
+from docgraph.embed.provider import EmbeddingProvider
+from docgraph.models import SearchResult
+from docgraph.store.chroma import ChromaStore
+from docgraph.store.sqlite import SQLiteStore
 
 
 class SearchService:

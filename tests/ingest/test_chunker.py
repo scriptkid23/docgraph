@@ -1,4 +1,4 @@
-from boostmcp.ingest.chunker import chunk_markdown
+from docgraph.ingest.chunker import chunk_markdown
 
 
 def test_chunk_markdown_splits_with_overlap():
