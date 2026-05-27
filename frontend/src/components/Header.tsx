@@ -37,7 +37,6 @@ export function Header({
         <h1 className="hero-title">Documents</h1>
         <div className="hero-rule-wrap" aria-hidden="true">
           <div className="hero-rule" />
-          <div className="hero-square" />
         </div>
         <p className={stripClass}>{statusText}</p>
       </div>
