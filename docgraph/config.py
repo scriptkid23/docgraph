@@ -22,9 +22,10 @@ class Config:
     data_dir: Path
     web_host: str = "127.0.0.1"
     web_port: int = 8088
-    embed_provider: str = "ollama"
+    embed_provider: str = "local"
     ollama_url: str = "http://127.0.0.1:11434"
     ollama_model: str = "nomic-embed-text:latest"
+    local_model: str = "nomic-embed-text"
     openai_api_key: str = ""
     openai_model: str = "text-embedding-3-small"
     chunk_size: int = 512
@@ -34,6 +35,7 @@ class Config:
     min_score: float = 0.3
     crawl_timeout_sec: int = 30
     max_urls_per_import: int = 50
+    max_chunks_per_doc: int = 5000
 
     @property
     def sqlite_path(self) -> Path:
@@ -50,6 +52,10 @@ class Config:
     @property
     def markdown_dir(self) -> Path:
         return self.data_dir / "files" / "markdown"
+
+    @property
+    def local_model_dir(self) -> Path:
+        return self.data_dir / "models"
 
     def ensure_dirs(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
@@ -69,12 +75,16 @@ def _apply_yaml(cfg: Config, data: dict[str, Any]) -> None:
         cfg.embed_provider = embedding.get("provider", cfg.embed_provider)
         cfg.ollama_url = embedding.get("ollama_url", cfg.ollama_url)
         cfg.ollama_model = embedding.get("ollama_model", cfg.ollama_model)
+        cfg.local_model = embedding.get("local_model", cfg.local_model)
         cfg.openai_api_key = embedding.get("openai_api_key", cfg.openai_api_key)
         cfg.openai_model = embedding.get("openai_model", cfg.openai_model)
     if ingest := data.get("ingest"):
         cfg.chunk_size = int(ingest.get("chunk_size", cfg.chunk_size))
         cfg.chunk_overlap = int(ingest.get("chunk_overlap", cfg.chunk_overlap))
         cfg.max_file_size_mb = int(ingest.get("max_file_size_mb", cfg.max_file_size_mb))
+        cfg.max_chunks_per_doc = int(
+            ingest.get("max_chunks_per_doc", cfg.max_chunks_per_doc)
+        )
     if crawl := data.get("crawl"):
         cfg.crawl_timeout_sec = int(crawl.get("timeout_sec", cfg.crawl_timeout_sec))
         cfg.max_urls_per_import = int(crawl.get("max_urls_per_import", cfg.max_urls_per_import))
@@ -94,12 +104,16 @@ def _apply_env(cfg: Config) -> None:
         cfg.ollama_url = v
     if v := os.getenv("DOCGRAPH_OLLAMA_EMBED_MODEL"):
         cfg.ollama_model = v
+    if v := os.getenv("DOCGRAPH_LOCAL_MODEL"):
+        cfg.local_model = v
     if v := os.getenv("DOCGRAPH_OPENAI_API_KEY"):
         cfg.openai_api_key = v
     if v := os.getenv("DOCGRAPH_CHUNK_SIZE"):
         cfg.chunk_size = int(v)
     if v := os.getenv("DOCGRAPH_MAX_FILE_MB"):
         cfg.max_file_size_mb = int(v)
+    if v := os.getenv("DOCGRAPH_MAX_CHUNKS_PER_DOC"):
+        cfg.max_chunks_per_doc = int(v)
     if v := os.getenv("DOCGRAPH_CRAWL_TIMEOUT_SEC"):
         cfg.crawl_timeout_sec = int(v)
     if v := os.getenv("DOCGRAPH_MAX_URLS_PER_IMPORT"):

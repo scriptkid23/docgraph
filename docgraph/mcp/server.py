@@ -22,10 +22,9 @@ def create_mcp_server(state: AppState) -> FastMCP:
         top_k: int | None = None,
     ) -> str:
         """Semantic search over uploaded documents. Returns relevant chunks with metadata."""
-        tag = tags[0] if tags else None
         try:
             results = await search_svc.search(
-                query=query, top_k=top_k, folder=folder, tag=tag
+                query=query, top_k=top_k, folder=folder, tags=tags
             )
         except RuntimeError as exc:
             return json.dumps({"error": str(exc), "results": []})

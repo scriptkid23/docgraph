@@ -1,9 +1,12 @@
 from docgraph.config import Config
+from docgraph.embed.local import LocalEmbedder
 from docgraph.embed.ollama import OllamaEmbedder
 from docgraph.embed.provider import EmbeddingProvider
 
 
 def create_embedder(cfg: Config) -> EmbeddingProvider:
+    if cfg.embed_provider == "local":
+        return LocalEmbedder(cfg.local_model, cfg.local_model_dir)
     if cfg.embed_provider == "ollama":
         return OllamaEmbedder(cfg.ollama_url, cfg.ollama_model)
     if cfg.embed_provider == "openai":
