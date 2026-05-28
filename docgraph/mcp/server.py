@@ -43,6 +43,7 @@ def create_mcp_server(state: AppState) -> FastMCP:
                 "chunk_index": r.chunk_index,
                 "score": round(r.score, 4),
                 "source_page": r.source_page,
+                "file_path": r.file_path,
             }
             for r in results
         ]

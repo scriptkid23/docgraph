@@ -11,11 +11,47 @@ const idleUpload: UploadProgressState = {
   failed: false,
 };
 
+type UploadVariant = "documents" | "code";
+
+const UPLOAD_VARIANTS: Record<
+  UploadVariant,
+  {
+    title: string;
+    intro: string;
+    dropLabel: string;
+    accept?: string;
+    multiple: boolean;
+  }
+> = {
+  documents: {
+    title: "Upload",
+    intro:
+      "Drop PDFs and documents to index for semantic search in Cursor via MCP.",
+    dropLabel: "Drop files or click to browse",
+    multiple: true,
+  },
+  code: {
+    title: "Code",
+    intro:
+      "Upload a Repomix codebase dump (.txt or .xml). Each file in the dump is chunked with code-aware boundaries and tagged with its source path.",
+    dropLabel: "Drop Repomix dump or click to browse",
+    accept: ".txt,.xml,text/plain,application/xml,text/xml",
+    multiple: false,
+  },
+};
+
 interface UploadSectionProps {
   onUploaded: () => void;
+  embedded?: boolean;
+  variant?: UploadVariant;
 }
 
-export function UploadSection({ onUploaded }: UploadSectionProps) {
+export function UploadSection({
+  onUploaded,
+  embedded = false,
+  variant = "documents",
+}: UploadSectionProps) {
+  const config = UPLOAD_VARIANTS[variant];
   const inputRef = useRef<HTMLInputElement>(null);
   const [folder, setFolder] = useState("");
   const [tags, setTags] = useState("");
@@ -81,15 +117,20 @@ export function UploadSection({ onUploaded }: UploadSectionProps) {
     if (e.dataTransfer.files.length) void uploadFiles(e.dataTransfer.files);
   };
 
-  return (
-    <section className="section" aria-labelledby="upload-heading">
-      <p className="label-mono" id="upload-heading">
-        01 — Ingest
-      </p>
-      <h2 className="section-title">Upload</h2>
-      <p className="section-intro">
-        Drop PDFs and documents to index for semantic search in Cursor via MCP.
-      </p>
+  const content = (
+    <>
+      {!embedded && (
+        <>
+          <p className="label-mono" id="upload-heading">
+            01 — Ingest
+          </p>
+          <h2 className="section-title">{config.title}</h2>
+        </>
+      )}
+      {embedded && (
+        <h2 className="section-title ingest-panel-title">{config.title}</h2>
+      )}
+      <p className="section-intro">{config.intro}</p>
 
       <div
         className={`dropzone${hover ? " dropzone--hover" : ""}${busy ? " dropzone--disabled" : ""}`}
@@ -113,7 +154,7 @@ export function UploadSection({ onUploaded }: UploadSectionProps) {
         <span className="dropzone-mark" aria-hidden="true">
           ↑
         </span>
-        <span className="dropzone-label">Drop files or click to browse</span>
+        <span className="dropzone-label">{config.dropLabel}</span>
       </div>
 
       {upload.visible && (
@@ -134,7 +175,8 @@ export function UploadSection({ onUploaded }: UploadSectionProps) {
       <input
         ref={inputRef}
         type="file"
-        multiple
+        multiple={config.multiple}
+        accept={config.accept}
         hidden
         onChange={(e) => e.target.files && void uploadFiles(e.target.files)}
       />
@@ -163,6 +205,16 @@ export function UploadSection({ onUploaded }: UploadSectionProps) {
           />
         </div>
       </div>
+    </>
+  );
+
+  if (embedded) {
+    return content;
+  }
+
+  return (
+    <section className="section" aria-labelledby="upload-heading">
+      {content}
     </section>
   );
 }

@@ -50,6 +50,7 @@ class SearchService:
                 chunk_index=r["chunk_index"],
                 score=r["score"],
                 source_page=r.get("source_page"),
+                file_path=r.get("file_path"),
             )
             for r in filtered[:k]
         ]

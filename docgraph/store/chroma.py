@@ -84,6 +84,7 @@ class ChromaStore:
                 "chunk_index": int(meta.get("chunk_index", 0)),
                 "score": score,
                 "source_page": meta.get("source_page"),
+                "file_path": meta.get("file_path"),
             })
         return out
 

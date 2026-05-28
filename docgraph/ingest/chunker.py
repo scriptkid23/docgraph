@@ -14,15 +14,26 @@ _SEPARATORS: tuple[str, ...] = (
     "",
 )
 
+_CODE_SEPARATORS: tuple[str, ...] = (
+    "\nclass ",
+    "\ndef ",
+    "\nfunc ",
+    "\nfunction ",
+    "\n\n",
+    "\n",
+    " ",
+    "",
+)
+
 
 def _split_recursive(
-    text: str, max_chars: int, start_idx: int = 0
+    text: str, max_chars: int, separators: tuple[str, ...], start_idx: int = 0
 ) -> list[str]:
     """Recursively split text down to pieces ≤ max_chars, preferring natural boundaries."""
     if len(text) <= max_chars:
         return [text]
-    for i in range(start_idx, len(_SEPARATORS)):
-        sep = _SEPARATORS[i]
+    for i in range(start_idx, len(separators)):
+        sep = separators[i]
         if sep == "":
             return [text[j : j + max_chars] for j in range(0, len(text), max_chars)]
         if sep not in text:
@@ -39,7 +50,7 @@ def _split_recursive(
             if len(piece) <= max_chars:
                 out.append(piece)
             else:
-                out.extend(_split_recursive(piece, max_chars, i + 1))
+                out.extend(_split_recursive(piece, max_chars, separators, i + 1))
         return out
     return [text]
 
@@ -70,15 +81,12 @@ def _merge_with_overlap(
     return [c for c in chunks if c]
 
 
-def chunk_markdown(
+def _chunk(
     text: str,
-    chunk_size: int = 512,
-    chunk_overlap: int = 64,
+    separators: tuple[str, ...],
+    chunk_size: int,
+    chunk_overlap: int,
 ) -> list[str]:
-    """Split markdown into chunks, preferring heading/paragraph boundaries.
-
-    chunk_size and chunk_overlap are in approximate tokens (× 4 for char budget).
-    """
     text = text.strip()
     if not text:
         return []
@@ -88,5 +96,26 @@ def chunk_markdown(
         char_overlap = char_size // 2
     if len(text) <= char_size:
         return [text]
-    pieces = _split_recursive(text, char_size)
+    pieces = _split_recursive(text, char_size, separators)
     return _merge_with_overlap(pieces, char_size, char_overlap)
+
+
+def chunk_markdown(
+    text: str,
+    chunk_size: int = 512,
+    chunk_overlap: int = 64,
+) -> list[str]:
+    """Split markdown into chunks, preferring heading/paragraph boundaries.
+
+    chunk_size and chunk_overlap are in approximate tokens (× 4 for char budget).
+    """
+    return _chunk(text, _SEPARATORS, chunk_size, chunk_overlap)
+
+
+def chunk_code(
+    text: str,
+    chunk_size: int = 512,
+    chunk_overlap: int = 64,
+) -> list[str]:
+    """Split source code into chunks, preferring class/def/function boundaries."""
+    return _chunk(text, _CODE_SEPARATORS, chunk_size, chunk_overlap)

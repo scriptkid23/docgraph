@@ -8,7 +8,8 @@ from pathlib import Path
 from docgraph.config import Config
 from docgraph.embed.local import EMBED_BATCH_SIZE
 from docgraph.embed.provider import EmbeddingProvider
-from docgraph.ingest.chunker import chunk_markdown
+from docgraph.ingest.chunker import chunk_code, chunk_markdown
+from docgraph.ingest.code_dump import detect_repomix, infer_language, parse_repomix
 from docgraph.ingest.converter import convert_file_to_markdown
 from docgraph.ingest.crawler import UrlCrawler
 from docgraph.models import DocumentStatus, SourceType
@@ -17,6 +18,12 @@ from docgraph.store.files import FileStore
 from docgraph.store.sqlite import SQLiteStore
 
 logger = logging.getLogger(__name__)
+
+
+def _read_text_prefix(path: Path, limit: int = 65536) -> str:
+    """Read up to `limit` chars of a file as text, ignoring decode errors."""
+    with path.open("r", encoding="utf-8", errors="ignore") as f:
+        return f.read(limit)
 
 
 class Indexer:
@@ -116,6 +123,78 @@ class Indexer:
             )
             raise
 
+    async def index_code_dump(self, doc_id: str, text: str) -> None:
+        doc = self._sqlite.get_document(doc_id)
+        if doc is None:
+            raise ValueError(f"document not found: {doc_id}")
+        try:
+            self._progress(doc_id, 10, "Parsing code dump (10%)")
+            parsed = parse_repomix(text)
+            if not parsed:
+                raise ValueError("could not parse code dump")
+            md_path = self._files.save_markdown(doc_id, text)
+            self._progress(doc_id, 28, "Splitting code into chunks (28%)")
+            chunk_texts: list[str] = []
+            chunk_files: list[str] = []
+            for file_path, content in parsed:
+                pieces = await asyncio.to_thread(
+                    chunk_code,
+                    content,
+                    self._cfg.chunk_size,
+                    self._cfg.chunk_overlap,
+                )
+                for piece in pieces:
+                    chunk_texts.append(piece)
+                    chunk_files.append(file_path)
+            if not chunk_texts:
+                raise ValueError("no chunks produced from code dump")
+            if len(chunk_texts) > self._cfg.max_chunks_per_doc:
+                raise ValueError(
+                    f"document exceeds max_chunks_per_doc "
+                    f"({len(chunk_texts)} > {self._cfg.max_chunks_per_doc}); "
+                    f"increase DOCGRAPH_MAX_CHUNKS_PER_DOC or split the source"
+                )
+            self._progress(
+                doc_id, 42, f"Chunked into {len(chunk_texts)} parts (42%)"
+            )
+            vectors = await self._embed_with_progress(doc_id, chunk_texts)
+            self._progress(doc_id, 96, "Saving to index (96%)")
+            chroma_chunks = []
+            for i, (piece, vec, file_path) in enumerate(
+                zip(chunk_texts, vectors, chunk_files)
+            ):
+                metadata = {
+                    "doc_id": doc_id,
+                    "filename": doc.filename,
+                    "folder": doc.folder,
+                    "tags": json.dumps(doc.tags),
+                    "chunk_index": i,
+                    "file_path": file_path,
+                    "language": infer_language(file_path) or "",
+                }
+                if doc.source_url:
+                    metadata["source_url"] = doc.source_url
+                chroma_chunks.append({
+                    "id": f"{doc_id}_{i}",
+                    "embedding": vec,
+                    "text": piece,
+                    "metadata": metadata,
+                })
+            self._chroma.upsert_chunks(chroma_chunks)
+            self._sqlite.update_status(
+                doc_id,
+                DocumentStatus.READY,
+                chunk_count=len(chunk_texts),
+                markdown_path=str(md_path),
+            )
+        except Exception as exc:
+            self._sqlite.update_status(
+                doc_id,
+                DocumentStatus.ERROR,
+                error_message=str(exc),
+            )
+            raise
+
     async def index_document(self, doc_id: str, original_path: Path) -> None:
         doc = self._sqlite.get_document(doc_id)
         if doc is None:
@@ -124,6 +203,13 @@ class Indexer:
             "indexing file doc_id=%s path=%s", doc_id, original_path.name
         )
         try:
+            prefix = await asyncio.to_thread(_read_text_prefix, original_path)
+            if detect_repomix(prefix):
+                full_text = await asyncio.to_thread(
+                    original_path.read_text, "utf-8", "ignore"
+                )
+                await self.index_code_dump(doc_id, full_text)
+                return
             self._progress(doc_id, 5, "Converting to text (5%)")
             markdown = await asyncio.to_thread(
                 convert_file_to_markdown, original_path

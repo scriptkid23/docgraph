@@ -148,6 +148,57 @@
   height: 8px;
 }
 
+/* —— Ingest tabs —— */
+.ingest-section {
+  padding-bottom: 2rem;
+}
+
+.ingest-tabs {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0;
+  margin: 1.25rem 0 2rem;
+  border-bottom: var(--border-medium);
+}
+
+.ingest-tab {
+  position: relative;
+  margin: 0;
+  padding: 0.85rem 1.25rem;
+  border: none;
+  border-bottom: 4px solid transparent;
+  margin-bottom: -2px;
+  background: transparent;
+  font-family: var(--font-mono);
+  font-size: 0.75rem;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--muted-foreground);
+  cursor: pointer;
+  transition: color var(--transition-instant), border-color var(--transition-instant),
+    background var(--transition-instant);
+}
+
+.ingest-tab:hover {
+  color: var(--foreground);
+  background: var(--muted);
+}
+
+.ingest-tab:focus-visible {
+  outline: 3px solid var(--ring);
+  outline-offset: -3px;
+}
+
+.ingest-tab--active {
+  color: var(--foreground);
+  border-bottom-color: var(--foreground);
+}
+
+.ingest-panel-title {
+  margin-top: 0;
+}
+
 /* —— Upload —— */
 .dropzone {
   display: flex;
