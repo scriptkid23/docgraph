@@ -17,7 +17,27 @@ pip install maturin
 cd crates/docgraph-embed && maturin develop --release && cd ../..
 ```
 
+Poetry-only setup (no global `pip install`):
+
+```bash
+poetry install
+poetry add --group dev maturin
+poetry run maturin develop --release -m crates/docgraph-embed/Cargo.toml
+```
+
 First run downloads the ONNX model (~100MB) to `~/.docgraph/models`.
+
+### Windows troubleshooting: `maturin develop` cannot overwrite module in use
+
+If `maturin develop` fails with a message about `pip could not overwrite the installed extension module` and a leftover directory like `~ocgraph_embed`, another Python process is still holding the old compiled extension.
+
+1. Stop all Python processes that may have imported `docgraph_embed` (for example, old `docgraph serve` terminals).
+2. Delete the leftover directory in the Poetry venv site-packages (for example, `.../Lib/site-packages/~ocgraph_embed`).
+3. Re-run:
+
+```bash
+poetry run maturin develop --release -m crates/docgraph-embed/Cargo.toml
+```
 
 Optional extras:
 
