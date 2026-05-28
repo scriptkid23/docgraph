@@ -6,7 +6,7 @@ from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
-EMBED_BATCH_SIZE = 24
+EMBED_BATCH_SIZE = 64
 
 
 class LocalEmbedder:
@@ -63,7 +63,7 @@ class LocalEmbedder:
         for start in range(0, len(prepared), EMBED_BATCH_SIZE):
             batch = prepared[start : start + EMBED_BATCH_SIZE]
             rows = await asyncio.to_thread(native.embed, batch)
-            all_vectors.extend([list(map(float, row)) for row in rows])
+            all_vectors.extend(rows)
         return all_vectors
 
     async def health_check(self) -> None:
