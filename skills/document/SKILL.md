@@ -38,7 +38,7 @@ search_documents(
 
 1. Answer **only** from returned chunks — do not use outside knowledge
 2. If `results` is empty or error mentions no matches:
-   - Tell user: "No matching documents. Upload files at http://127.0.0.1:8080"
+   - Tell user: "No matching documents. Upload files at http://127.0.0.1:8088"
 3. If error mentions Ollama:
    - Tell user to start Ollama and run `ollama pull nomic-embed-text`
 4. Cite sources inline: `[filename, chunk N]` or `[filename, p.X]` if source_page exists

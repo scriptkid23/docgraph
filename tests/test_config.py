@@ -26,7 +26,7 @@ def test_config_defaults(tmp_data_dir):
     cfg = Config(data_dir=tmp_data_dir)
     assert cfg.web_host == "127.0.0.1"
     assert cfg.ollama_url == "http://127.0.0.1:11434"
-    assert cfg.web_port == 8080
+    assert cfg.web_port == 8088
     assert cfg.embed_provider == "local"
     assert cfg.local_model == "nomic-embed-text"
     assert cfg.chunk_size == 512

@@ -30,7 +30,7 @@ def create_mcp_server(state: AppState) -> FastMCP:
             return json.dumps({"error": str(exc), "results": []})
         if not results:
             return json.dumps({
-                "message": "No documents matched. Upload at http://127.0.0.1:8080",
+                "message": "No documents matched. Upload at http://127.0.0.1:8088",
                 "results": [],
             })
         payload = [

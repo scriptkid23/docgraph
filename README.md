@@ -40,7 +40,7 @@ poetry run crawl4ai-setup
 poetry run docgraph serve
 ```
 
-- Web UI: http://127.0.0.1:8080 (React — upload files, import URLs, manage documents)
+- Web UI: http://127.0.0.1:8088 (React — upload files, import URLs, manage documents)
 
 ### Web UI development (React + Vite)
 
@@ -49,12 +49,12 @@ The UI uses a **Minimalist Monochrome** design system (Playfair Display, Source 
 ```bash
 cd frontend
 npm install
-npm run dev          # http://127.0.0.1:5173 — proxies /api → :8080
+npm run dev          # http://127.0.0.1:5173 — proxies /api → :8088
 npm run build        # output → docgraph/web/static/
 ```
 
 Design tokens live in `frontend/src/styles/`. Run `npm run build` after UI changes.
-- MCP SSE: http://127.0.0.1:8080/mcp/sse (connect Cursor via URL below)
+- MCP SSE: http://127.0.0.1:8088/mcp/sse (connect Cursor via URL below)
 
 Keep this terminal running while using Cursor.
 
@@ -67,7 +67,7 @@ Keep this terminal running while using Cursor.
   "mcpServers": {
     "docgraph": {
       "command": "npx",
-      "args": ["-y", "mcp-remote@latest", "http://127.0.0.1:8080/mcp/sse"]
+      "args": ["-y", "mcp-remote@latest", "http://127.0.0.1:8088/mcp/sse"]
     }
   }
 }
@@ -114,7 +114,7 @@ Then in Cursor chat:
 | Env Variable | Default | Description |
 |---|---|---|
 | `DOCGRAPH_DATA_DIR` | `~/.docgraph` | Data directory |
-| `DOCGRAPH_WEB_PORT` | `8080` | Web UI port |
+| `DOCGRAPH_WEB_PORT` | `8088` | Web UI port |
 | `DOCGRAPH_EMBED_PROVIDER` | `local` | `local`, `ollama`, or `openai` |
 | `DOCGRAPH_LOCAL_MODEL` | `nomic-embed-text` | Local ONNX (English, 768-dim). For multilingual: `multilingual-e5-base` |
 | `DOCGRAPH_OLLAMA_URL` | `http://127.0.0.1:11434` | Ollama endpoint when provider=ollama |
