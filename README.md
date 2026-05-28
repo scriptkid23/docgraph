@@ -60,7 +60,9 @@ Keep this terminal running while using Cursor.
 
 ## Cursor MCP Configuration
 
-**Recommended — server chạy riêng, MCP trỏ HTTP** (chạy `docgraph serve` trước):
+Add to your Cursor MCP settings (`Settings → MCP` or `.cursor/mcp.json`).
+
+**Recommended — run the server separately, connect via HTTP** (start `docgraph serve` first):
 
 ```json
 {
@@ -73,7 +75,7 @@ Keep this terminal running while using Cursor.
 }
 ```
 
-**Alternative — Cursor tự launch process (stdio):**
+**Alternative — let Cursor launch the process (stdio):**
 
 ```json
 {
@@ -81,11 +83,13 @@ Keep this terminal running while using Cursor.
     "docgraph": {
       "command": "poetry",
       "args": ["run", "docgraph", "serve", "--stdio"],
-      "cwd": "C:/Users/hoan.do/Documents/project/DocGraph"
+      "cwd": "/path/to/docgraph"
     }
   }
 }
 ```
+
+Replace `/path/to/docgraph` with the absolute path to this repository on your machine.
 
 ## `/document` Skill
 
