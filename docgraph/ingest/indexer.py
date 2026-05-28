@@ -6,7 +6,7 @@ import logging
 from pathlib import Path
 
 from docgraph.config import Config
-from docgraph.embed.ollama import EMBED_BATCH_SIZE
+from docgraph.embed.local import EMBED_BATCH_SIZE
 from docgraph.embed.provider import EmbeddingProvider
 from docgraph.ingest.chunker import chunk_markdown
 from docgraph.ingest.converter import convert_file_to_markdown
@@ -44,7 +44,7 @@ class Indexer:
         vectors: list[list[float]] = []
         for start in range(0, total, EMBED_BATCH_SIZE):
             batch = chunks[start : start + EMBED_BATCH_SIZE]
-            vectors.extend(await self._embedder.embed(batch))
+            vectors.extend(await self._embedder.embed(batch, for_query=False))
             done = min(start + len(batch), total)
             pct = 45 + int(50 * done / total)
             self._progress(

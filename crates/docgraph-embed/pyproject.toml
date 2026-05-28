@@ -1,0 +1,13 @@
+[build-system]
+requires = ["maturin>=1.0,<2.0"]
+build-backend = "maturin"
+
+[project]
+name = "docgraph-embed"
+version = "0.1.0"
+requires-python = ">=3.10"
+description = "Rust local embedder for DocGraph (fastembed / ONNX)"
+
+[tool.maturin]
+features = ["pyo3/extension-module"]
+module-name = "docgraph_embed"

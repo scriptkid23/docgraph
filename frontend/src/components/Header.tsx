@@ -14,7 +14,7 @@ export function Header({
   documentCount,
   processingCount,
 }: HeaderProps) {
-  let statusText = "Checking Ollama connection…";
+  let statusText = "Checking embedding engine…";
   let stripClass = "health-strip health-strip--pending";
 
   if (healthError) {
@@ -22,10 +22,10 @@ export function Header({
     stripClass = "health-strip health-strip--bad";
   } else if (health) {
     if (health.ollama.ok) {
-      statusText = `Ollama operational · ${health.embed_provider}`;
+      statusText = `Embedding ready · ${health.embed_provider}`;
       stripClass = "health-strip health-strip--ok";
     } else {
-      statusText = health.ollama.error || "Ollama unavailable";
+      statusText = health.ollama.error || "Embedding unavailable";
       stripClass = "health-strip health-strip--bad";
     }
   }

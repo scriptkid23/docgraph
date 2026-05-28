@@ -37,3 +37,7 @@ Thumbs.db
 # React UI
 frontend/node_modules/
 frontend/dist/
+
+# Rust embedder
+crates/**/target/
+*.pyd

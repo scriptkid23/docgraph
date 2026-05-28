@@ -68,7 +68,9 @@ class OllamaEmbedder:
         detail = f"{type(last_exc).__name__}: {last_exc}" if last_exc else "unknown"
         raise RuntimeError(f"{self.HEALTH_MSG} ({detail})") from last_exc
 
-    async def embed(self, texts: list[str]) -> list[list[float]]:
+    async def embed(
+        self, texts: list[str], *, for_query: bool = False
+    ) -> list[list[float]]:
         if not texts:
             return []
         client = await self._get_client()

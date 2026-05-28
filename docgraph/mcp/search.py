@@ -30,7 +30,7 @@ class SearchService:
         tags: Optional[list[str]] = None,
     ) -> list[SearchResult]:
         k = top_k or self._cfg.default_top_k
-        vectors = await self._embedder.embed([query])
+        vectors = await self._embedder.embed([query], for_query=True)
         # Overfetch so the min_score filter doesn't starve the caller of results
         # when high-quality matches exist beyond the top_k cutoff.
         raw = self._chroma.search(

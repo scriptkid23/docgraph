@@ -8,7 +8,9 @@ class OpenAIEmbedder:
         self._client = AsyncOpenAI(api_key=api_key)
         self._model = model
 
-    async def embed(self, texts: list[str]) -> list[list[float]]:
+    async def embed(
+        self, texts: list[str], *, for_query: bool = False
+    ) -> list[list[float]]:
         if not texts:
             return []
         resp = await self._client.embeddings.create(model=self._model, input=texts)
