@@ -85,6 +85,50 @@ def _run_stdio(cfg) -> None:
     mcp.run(transport="stdio")
 
 
+def _run_reindex(cfg, *, all_docs: bool, doc_id: str | None, dry_run: bool) -> None:
+    from docgraph.models import DocumentStatus
+    from docgraph.web.deps import AppState
+
+    state = AppState.create(cfg)
+    sqlite = state.sqlite
+    if all_docs:
+        docs = sqlite.list_documents(status=DocumentStatus.READY)
+        ids = [d.id for d in docs]
+    elif doc_id:
+        ids = [doc_id]
+    else:
+        raise SystemExit("specify --all or a doc_id")
+
+    log = logging.getLogger("docgraph")
+    if dry_run:
+        for did in ids:
+            log.info("would reindex: %s", did)
+        return
+
+    indexer = state.indexer()
+    for did in ids:
+        log.info("reindexing %s", did)
+        asyncio.run(indexer.reindex_document(did))
+
+
+def _run_stats_chunks(cfg) -> None:
+    from docgraph.web.deps import AppState
+
+    state = AppState.create(cfg)
+    stats = state.chroma.all_chunk_token_stats()
+    if not stats:
+        print("No chunks indexed.")
+        return
+    tokens = sorted(s["tokens"] for s in stats if s["tokens"] > 0)
+    if not tokens:
+        print(f"{len(stats)} chunks (no token metadata yet — re-index to populate)")
+        return
+    n = len(tokens)
+    mid = tokens[n // 2]
+    p95 = tokens[int(n * 0.95)] if n > 1 else tokens[0]
+    print(f"chunks: {n}  min: {tokens[0]}  median: {mid}  p95: {p95}  max: {tokens[-1]}")
+
+
 def _run_serve(stdio: bool) -> None:
     cfg = load_config()
     cfg.ensure_dirs()
@@ -109,9 +153,30 @@ def main() -> None:
         action="store_true",
         help="Use MCP stdio instead of HTTP SSE (Cursor launches process directly)",
     )
+    reindex_parser = sub.add_parser("reindex", help="Re-index documents")
+    reindex_parser.add_argument("--all", action="store_true", help="Re-index all READY docs")
+    reindex_parser.add_argument("doc_id", nargs="?", help="Single document id")
+    reindex_parser.add_argument("--dry-run", action="store_true")
+    stats_parser = sub.add_parser("stats", help="Index statistics")
+    stats_sub = stats_parser.add_subparsers(dest="stats_command")
+    stats_sub.add_parser("chunks", help="Token count distribution for indexed chunks")
     args = parser.parse_args()
     if args.command == "serve":
         _run_serve(stdio=args.stdio)
+        return
+    cfg = load_config()
+    cfg.ensure_dirs()
+    logging.basicConfig(level=logging.INFO)
+    if args.command == "reindex":
+        _run_reindex(
+            cfg,
+            all_docs=args.all,
+            doc_id=args.doc_id,
+            dry_run=args.dry_run,
+        )
+        return
+    if args.command == "stats" and args.stats_command == "chunks":
+        _run_stats_chunks(cfg)
         return
     parser.print_help()
     sys.exit(1)

@@ -8,10 +8,12 @@ from pathlib import Path
 from docgraph.config import Config
 from docgraph.embed.local import EMBED_BATCH_SIZE
 from docgraph.embed.provider import EmbeddingProvider
-from docgraph.ingest.chunker import chunk_code, chunk_markdown
+from docgraph.ingest.chunker import MarkdownChunk, chunk_markdown_sections
 from docgraph.ingest.code_dump import detect_repomix, infer_language, parse_repomix
 from docgraph.ingest.converter import convert_file_to_markdown
 from docgraph.ingest.crawler import UrlCrawler
+from docgraph.ingest.lang_dispatch import dispatch_chunker, normalize_chunk_output
+from docgraph.ingest.tokenizer import TokenCounter, get_token_counter
 from docgraph.models import DocumentStatus, SourceType
 from docgraph.store.chroma import ChromaStore
 from docgraph.store.files import FileStore
@@ -34,12 +36,14 @@ class Indexer:
         files: FileStore,
         chroma: ChromaStore,
         embedder: EmbeddingProvider,
+        counter: TokenCounter | None = None,
     ) -> None:
         self._cfg = cfg
         self._sqlite = sqlite
         self._files = files
         self._chroma = chroma
         self._embedder = embedder
+        self._counter = counter or get_token_counter(cfg)
 
     def _progress(self, doc_id: str, pct: int, phase: str) -> None:
         self._sqlite.update_progress(doc_id, pct, phase)
@@ -61,6 +65,47 @@ class Indexer:
             )
         return vectors
 
+    def _build_chroma_chunk(
+        self,
+        doc,
+        i: int,
+        text: str,
+        vec: list[float],
+        *,
+        heading_path: list[str] | None = None,
+        file_path: str | None = None,
+        language: str | None = None,
+        chunker_name: str | None = None,
+        tokens: int = 0,
+        partial: bool = False,
+        overflow: bool = False,
+    ) -> dict:
+        metadata = {
+            "doc_id": doc.id,
+            "filename": doc.filename,
+            "folder": doc.folder,
+            "tags": json.dumps(doc.tags),
+            "chunk_index": i,
+            "heading_path": json.dumps(heading_path or []),
+            "tokens": tokens or self._counter.count(text),
+            "partial": partial,
+            "overflow": overflow,
+        }
+        if doc.source_url:
+            metadata["source_url"] = doc.source_url
+        if file_path:
+            metadata["file_path"] = file_path
+        if language:
+            metadata["language"] = language
+        if chunker_name:
+            metadata["chunker"] = chunker_name
+        return {
+            "id": f"{doc.id}_{i}",
+            "embedding": vec,
+            "text": text,
+            "metadata": metadata,
+        }
+
     async def index_markdown(self, doc_id: str, markdown: str) -> None:
         doc = self._sqlite.get_document(doc_id)
         if doc is None:
@@ -68,12 +113,16 @@ class Indexer:
         try:
             self._progress(doc_id, 28, "Converted — splitting chunks (28%)")
             md_path = self._files.save_markdown(doc_id, markdown)
-            chunks = await asyncio.to_thread(
-                chunk_markdown,
+            md_chunks: list[MarkdownChunk] = await asyncio.to_thread(
+                chunk_markdown_sections,
                 markdown,
                 self._cfg.chunk_size,
                 self._cfg.chunk_overlap,
+                counter=self._counter,
+                heading_prefix_enabled=self._cfg.heading_prefix_enabled,
+                atomic_blocks_enabled=self._cfg.atomic_blocks_enabled,
             )
+            chunks = [c.text for c in md_chunks]
             if not chunks:
                 raise ValueError("no chunks produced from document")
             if len(chunks) > self._cfg.max_chunks_per_doc:
@@ -91,23 +140,27 @@ class Indexer:
             vectors = await self._embed_with_progress(doc_id, chunks)
             self._progress(doc_id, 96, "Saving to index (96%)")
             chroma_chunks = []
-            for i, (text, vec) in enumerate(zip(chunks, vectors)):
-                metadata = {
-                    "doc_id": doc_id,
-                    "filename": doc.filename,
-                    "folder": doc.folder,
-                    # JSON-encoded so tags containing commas survive round-tripping.
-                    "tags": json.dumps(doc.tags),
-                    "chunk_index": i,
-                }
-                if doc.source_url:
-                    metadata["source_url"] = doc.source_url
-                chroma_chunks.append({
-                    "id": f"{doc_id}_{i}",
-                    "embedding": vec,
-                    "text": text,
-                    "metadata": metadata,
-                })
+            for i, (mc, vec) in enumerate(zip(md_chunks, vectors)):
+                if mc.overflow:
+                    logger.warning(
+                        "chunk %s_%d overflows budget (%d tokens)",
+                        doc_id,
+                        i,
+                        mc.tokens,
+                    )
+                chroma_chunks.append(
+                    self._build_chroma_chunk(
+                        doc,
+                        i,
+                        mc.text,
+                        vec,
+                        heading_path=mc.heading_path,
+                        tokens=mc.tokens,
+                        partial=mc.partial,
+                        overflow=mc.overflow,
+                        chunker_name="chunk_markdown_sections",
+                    )
+                )
             self._chroma.upsert_chunks(chroma_chunks)
             self._sqlite.update_status(
                 doc_id,
@@ -136,16 +189,36 @@ class Indexer:
             self._progress(doc_id, 28, "Splitting code into chunks (28%)")
             chunk_texts: list[str] = []
             chunk_files: list[str] = []
+            chunk_meta: list[dict] = []
+            chunk_languages: list[str] = []
+            chunker_names: list[str] = []
+
             for file_path, content in parsed:
+                language = infer_language(file_path)
+                chunker_fn = dispatch_chunker(
+                    language, code_chunker=self._cfg.code_chunker
+                )
+                chunker_name = getattr(chunker_fn, "__name__", chunker_fn.__class__.__name__)
+                kwargs = {
+                    "counter": self._counter,
+                    "heading_prefix_enabled": self._cfg.heading_prefix_enabled,
+                    "atomic_blocks_enabled": self._cfg.atomic_blocks_enabled,
+                }
                 pieces = await asyncio.to_thread(
-                    chunk_code,
+                    chunker_fn,
                     content,
                     self._cfg.chunk_size,
                     self._cfg.chunk_overlap,
+                    **kwargs,
                 )
-                for piece in pieces:
-                    chunk_texts.append(piece)
+                normalized = normalize_chunk_output(pieces)
+                for text_piece, heading_path, meta in normalized:
+                    chunk_texts.append(text_piece)
                     chunk_files.append(file_path)
+                    chunk_meta.append({**meta, "heading_path": heading_path})
+                    chunk_languages.append(language or "")
+                    chunker_names.append(chunker_name)
+
             if not chunk_texts:
                 raise ValueError("no chunks produced from code dump")
             if len(chunk_texts) > self._cfg.max_chunks_per_doc:
@@ -160,26 +233,24 @@ class Indexer:
             vectors = await self._embed_with_progress(doc_id, chunk_texts)
             self._progress(doc_id, 96, "Saving to index (96%)")
             chroma_chunks = []
-            for i, (piece, vec, file_path) in enumerate(
-                zip(chunk_texts, vectors, chunk_files)
+            for i, (piece, vec, file_path, meta, lang, cname) in enumerate(
+                zip(chunk_texts, vectors, chunk_files, chunk_meta, chunk_languages, chunker_names)
             ):
-                metadata = {
-                    "doc_id": doc_id,
-                    "filename": doc.filename,
-                    "folder": doc.folder,
-                    "tags": json.dumps(doc.tags),
-                    "chunk_index": i,
-                    "file_path": file_path,
-                    "language": infer_language(file_path) or "",
-                }
-                if doc.source_url:
-                    metadata["source_url"] = doc.source_url
-                chroma_chunks.append({
-                    "id": f"{doc_id}_{i}",
-                    "embedding": vec,
-                    "text": piece,
-                    "metadata": metadata,
-                })
+                chroma_chunks.append(
+                    self._build_chroma_chunk(
+                        doc,
+                        i,
+                        piece,
+                        vec,
+                        heading_path=meta.get("heading_path") or [],
+                        file_path=file_path,
+                        language=lang or None,
+                        chunker_name=cname,
+                        tokens=meta.get("tokens", 0),
+                        partial=meta.get("partial", False),
+                        overflow=meta.get("overflow", False),
+                    )
+                )
             self._chroma.upsert_chunks(chroma_chunks)
             self._sqlite.update_status(
                 doc_id,
@@ -276,7 +347,6 @@ class Indexer:
                 try:
                     await self._index_url_with_crawler(doc_id, url, crawler)
                 except Exception:
-                    # _index_url_with_crawler records ERROR status; continue to next URL.
                     logger.exception("URL index failed for doc_id=%s url=%s", doc_id, url)
 
     async def reindex_document(self, doc_id: str) -> None:

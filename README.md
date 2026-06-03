@@ -146,8 +146,17 @@ Then in Cursor chat:
 | `DOCGRAPH_CRAWL_TIMEOUT_SEC` | `30` | Per-URL crawl timeout |
 | `DOCGRAPH_MAX_URLS_PER_IMPORT` | `50` | Max URLs per import batch |
 | `DOCGRAPH_MAX_CHUNKS_PER_DOC` | `5000` | Hard cap on chunks per document (oversize → ERROR) |
+| `DOCGRAPH_TOKENIZER_SOURCE` | `auto` | `auto`, `char-ratio`, or `tiktoken` |
+| `DOCGRAPH_HEADING_PREFIX` | `true` | Prepend heading breadcrumb to markdown chunks |
+| `DOCGRAPH_ATOMIC_BLOCKS` | `true` | Keep code fences and tables atomic when chunking |
+| `DOCGRAPH_CODE_CHUNKER` | `regex` | `regex` or `treesitter` (requires `poetry install -E treesitter`) |
+| `DOCGRAPH_DEDUP_ENABLED` | `true` | Skip duplicate chunk text within a document |
+| `DOCGRAPH_MMR_LAMBDA` | `0.7` | MMR diversity (1.0 = pure relevance) |
+| `DOCGRAPH_RERANK_ENABLED` | `false` | Cross-encoder rerank (`poetry install -E rerank`) |
 
-See [v2 design spec](docs/superpowers/specs/2026-05-26-docgraph-v2-rag-design.md) and [implementation plans](docs/superpowers/plans/2026-05-26-docgraph-v2-index.md).
+Re-index after changing chunk settings: `poetry run docgraph reindex --all`
+
+See [chunker improvements spec](docs/superpowers/specs/2026-06-03-chunker-improvements-design.md).
 
 ## Test
 

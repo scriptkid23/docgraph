@@ -57,3 +57,5 @@ class SearchResult:
     score: float
     source_page: Optional[int] = None
     file_path: Optional[str] = None
+    heading_path: Optional[list[str]] = None
+    rerank_score: Optional[float] = None

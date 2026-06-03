@@ -1,0 +1,64 @@
+from __future__ import annotations
+
+import json
+from typing import Any
+
+from docgraph.ingest.chunker import chunk_code, chunk_markdown_sections
+from docgraph.ingest.structured_chunker import chunk_json, chunk_yaml
+from docgraph.ingest.treesitter_chunker import chunk_code_treesitter
+
+
+def _make_treesitter_chunker(language: str):
+    def _chunk(text: str, chunk_size: int = 512, chunk_overlap: int = 64, **kwargs):
+        return chunk_code_treesitter(
+            text, language, chunk_size, chunk_overlap, counter=kwargs.get("counter")
+        )
+
+    _chunk.__name__ = "chunk_code_treesitter"
+    return _chunk
+
+
+_REGISTRY: dict[str, Any] = {
+    "markdown": chunk_markdown_sections,
+    "json": chunk_json,
+    "yaml": chunk_yaml,
+}
+
+
+def dispatch_chunker(
+    language: str | None,
+    *,
+    code_chunker: str = "regex",
+) -> Any:
+    if language and language in _REGISTRY:
+        return _REGISTRY[language]
+
+    if code_chunker == "treesitter" and language:
+        from docgraph.ingest.treesitter_chunker import _get_parser
+
+        if _get_parser(language) is not None:
+            return _make_treesitter_chunker(language)
+
+    return chunk_code
+
+
+def normalize_chunk_output(
+    pieces: list[Any],
+) -> list[tuple[str, list[str], dict[str, Any]]]:
+    """Normalize chunker output to (text, heading_path, meta) tuples."""
+    out: list[tuple[str, list[str], dict[str, Any]]] = []
+    for piece in pieces:
+        if hasattr(piece, "text"):
+            heading_path = list(getattr(piece, "heading_path", []))
+            meta = {
+                "partial": getattr(piece, "partial", False),
+                "overflow": getattr(piece, "overflow", False),
+                "tokens": getattr(piece, "tokens", 0),
+                "heading_path": heading_path,
+            }
+            out.append((piece.text, heading_path, meta))
+        elif isinstance(piece, str):
+            out.append((piece, [], {}))
+        else:
+            raise TypeError(f"unexpected chunk type: {type(piece)}")
+    return out

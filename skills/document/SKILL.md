@@ -41,7 +41,10 @@ search_documents(
    - Tell user: "No matching documents. Upload files at http://127.0.0.1:8088"
 3. If error mentions Ollama:
    - Tell user to start Ollama and run `ollama pull nomic-embed-text`
-4. Cite sources inline: `[filename, chunk N]` or `[filename, p.X]` if source_page exists
+4. Cite sources inline:
+   - With heading path: `[filename → Section > Subsection, chunk N]`
+   - Without heading path: `[filename, chunk N]`
+   - With page: `[filename, p.X]` if source_page exists
 5. If chunks conflict, note the conflict and cite both sources
 
 ## Optional Follow-up
