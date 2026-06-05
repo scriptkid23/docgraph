@@ -1,15 +1,52 @@
 # DocGraph
 
-Local document RAG server for Cursor via MCP. Upload files or import URLs, index with a **local Rust embedder** (ONNX, no Ollama required), and query in Cursor via the `/document` skill.
+Local document RAG server for Cursor via MCP. Upload files or import URLs, index them with a **local Rust embedder** (ONNX, no Ollama or cloud key required), and query them from Cursor through the `/document` skill.
 
-## Prerequisites
+- **Web UI** — upload files, import URLs, and manage documents
+- **MCP server** — `search_documents`, `list_documents`, `get_document` exposed to Cursor
+- **Local embeddings** — fast ONNX embedder written in Rust; nothing leaves your machine
+
+---
+
+## Quick start with Docker (recommended)
+
+No need to install Python, Poetry, Rust, or Node — just run Docker.
+
+```bash
+docker compose up --build
+```
+
+Or with plain Docker:
+
+```bash
+docker build -t docgraph .
+docker run -p 8088:8088 -v docgraph-data:/data docgraph
+```
+
+Then open:
+
+- Web UI: http://127.0.0.1:8088
+- MCP SSE: http://127.0.0.1:8088/mcp/sse
+
+Notes:
+
+- The **first build** is slow (it compiles the Rust embedder and downloads dependencies); later builds are cached.
+- The **first run** downloads the ONNX model (~100MB) into the `/data` volume; later runs reuse it.
+- All data (sqlite db, Chroma index, uploaded files, model cache) is persisted in the `docgraph-data` volume, so it survives restarts.
+- For non-English documents, set `DOCGRAPH_LOCAL_MODEL=multilingual-e5-base` (uncomment it in `docker-compose.yml`) and re-index.
+
+---
+
+## Manual install (for development)
+
+### Prerequisites
 
 - Python 3.10–3.13
 - [Poetry](https://python-poetry.org/)
 - [Rust toolchain](https://rustup.rs/) + [maturin](https://www.maturin.rs/) (for local embeddings)
 - Optional: [Ollama](https://ollama.com/) if `DOCGRAPH_EMBED_PROVIDER=ollama`
 
-## Install
+### Install
 
 ```bash
 poetry install
@@ -27,7 +64,7 @@ poetry run maturin develop --release -m crates/docgraph-embed/Cargo.toml
 
 First run downloads the ONNX model (~100MB) to `~/.docgraph/models`.
 
-### Windows troubleshooting: `maturin develop` cannot overwrite module in use
+#### Windows troubleshooting: `maturin develop` cannot overwrite module in use
 
 If `maturin develop` fails with a message about `pip could not overwrite the installed extension module` and a leftover directory like `~ocgraph_embed`, another Python process is still holding the old compiled extension.
 
@@ -39,7 +76,7 @@ If `maturin develop` fails with a message about `pip could not overwrite the ins
 poetry run maturin develop --release -m crates/docgraph-embed/Cargo.toml
 ```
 
-Optional extras:
+### Optional extras
 
 ```bash
 poetry install -E openai   # cloud embedding instead of local/ollama
@@ -54,13 +91,16 @@ poetry run crawl4ai-setup
 # or: python -m playwright install chromium
 ```
 
-## Run
+### Run
 
 ```bash
 poetry run docgraph serve
 ```
 
 - Web UI: http://127.0.0.1:8088 (React — upload files, import URLs, manage documents)
+- MCP SSE: http://127.0.0.1:8088/mcp/sse
+
+Keep this terminal running while using Cursor.
 
 ### Web UI development (React + Vite)
 
@@ -74,15 +114,14 @@ npm run build        # output → docgraph/web/static/
 ```
 
 Design tokens live in `frontend/src/styles/`. Run `npm run build` after UI changes.
-- MCP SSE: http://127.0.0.1:8088/mcp/sse (connect Cursor via URL below)
 
-Keep this terminal running while using Cursor.
+---
 
-## Cursor MCP Configuration
+## Cursor MCP configuration
 
 Add to your Cursor MCP settings (`Settings → MCP` or `.cursor/mcp.json`).
 
-**Recommended — run the server separately, connect via HTTP** (start `docgraph serve` first):
+**Recommended — run the server separately, connect via HTTP** (start the server, via Docker or `docgraph serve`, first):
 
 ```json
 {
@@ -111,7 +150,9 @@ Add to your Cursor MCP settings (`Settings → MCP` or `.cursor/mcp.json`).
 
 Replace `/path/to/docgraph` with the absolute path to this repository on your machine.
 
-## `/document` Skill
+---
+
+## `/document` skill
 
 Copy `skills/document/SKILL.md` to your Cursor skills directory:
 
@@ -125,7 +166,9 @@ Then in Cursor chat:
 /document --folder docs --tag v2 What is DocGraph v2?
 ```
 
-## MCP Tools
+---
+
+## MCP tools
 
 | Tool | Description |
 |------|-------------|
@@ -133,11 +176,14 @@ Then in Cursor chat:
 | `list_documents` | List documents with optional filters |
 | `get_document` | Get full converted markdown for a document |
 
+---
+
 ## Configuration
 
 | Env Variable | Default | Description |
 |---|---|---|
-| `DOCGRAPH_DATA_DIR` | `~/.docgraph` | Data directory |
+| `DOCGRAPH_DATA_DIR` | `~/.docgraph` (`/data` in Docker) | Data directory |
+| `DOCGRAPH_WEB_HOST` | `127.0.0.1` (`0.0.0.0` in Docker) | Bind address for the Web UI / MCP server |
 | `DOCGRAPH_WEB_PORT` | `8088` | Web UI port |
 | `DOCGRAPH_EMBED_PROVIDER` | `local` | `local`, `ollama`, or `openai` |
 | `DOCGRAPH_LOCAL_MODEL` | `nomic-embed-text` | Local ONNX (English, 768-dim). For multilingual: `multilingual-e5-base` |
@@ -154,9 +200,17 @@ Then in Cursor chat:
 | `DOCGRAPH_MMR_LAMBDA` | `0.7` | MMR diversity (1.0 = pure relevance) |
 | `DOCGRAPH_RERANK_ENABLED` | `false` | Cross-encoder rerank (`poetry install -E rerank`) |
 
-Re-index after changing chunk settings: `poetry run docgraph reindex --all`
+Re-index after changing chunk settings:
 
-See [chunker improvements spec](docs/superpowers/specs/2026-06-03-chunker-improvements-design.md).
+```bash
+poetry run docgraph reindex --all
+# or inside Docker:
+docker compose exec docgraph docgraph reindex --all
+```
+
+See the [chunker improvements spec](docs/superpowers/specs/2026-06-03-chunker-improvements-design.md).
+
+---
 
 ## Test
 

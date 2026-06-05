@@ -118,6 +118,8 @@ def _apply_yaml(cfg: Config, data: dict[str, Any]) -> None:
 def _apply_env(cfg: Config) -> None:
     if v := os.getenv("DOCGRAPH_DATA_DIR"):
         cfg.data_dir = _expand_path(v)
+    if v := os.getenv("DOCGRAPH_WEB_HOST"):
+        cfg.web_host = v
     if v := os.getenv("DOCGRAPH_WEB_PORT"):
         cfg.web_port = int(v)
     if v := os.getenv("DOCGRAPH_EMBED_PROVIDER"):
