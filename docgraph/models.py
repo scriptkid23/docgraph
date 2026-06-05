@@ -54,4 +54,8 @@ class SearchResult:
     tags: list[str]
     chunk_index: int
     score: float
+    # Reciprocal Rank Fusion score from the hybrid retrieval stage. Comparable
+    # across hits in the same response (unlike `score`, which may mix rerank,
+    # vector and BM25 regimes). Does not reflect post-rerank reordering.
+    rrf_score: float = 0.0
     source_page: Optional[int] = None

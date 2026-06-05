@@ -273,5 +273,6 @@ class SearchService:
             tags=h.tags,
             chunk_index=h.chunk_index,
             score=score,
+            rrf_score=h.rrf_score,
             source_page=h.source_page,
         )

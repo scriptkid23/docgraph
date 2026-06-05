@@ -91,6 +91,21 @@ class TestHybridPipeline:
         assert any("DocGraph" in r.text or "vectors" in r.text for r in results)
 
     @pytest.mark.asyncio
+    async def test_rrf_score_populated_and_monotone_without_rerank(self, seeded):
+        # rrf_score must be set on every result and, in the absence of rerank,
+        # the result order should follow rrf_score descending.
+        cfg, sqlite, chroma, fts = seeded
+        svc = SearchService(cfg, sqlite, chroma, FakeEmbedder(), fts=fts, reranker=None)
+        results = await svc.search("DocGraph React")
+        assert len(results) >= 2
+        for r in results:
+            assert r.rrf_score > 0, f"rrf_score not set: {r}"
+        rrf_scores = [r.rrf_score for r in results]
+        assert rrf_scores == sorted(rrf_scores, reverse=True), (
+            f"rrf_score not monotone descending: {rrf_scores}"
+        )
+
+    @pytest.mark.asyncio
     async def test_disable_hybrid_skips_fts(self, seeded, monkeypatch):
         cfg, sqlite, chroma, fts = seeded
         cfg.hybrid_enabled = False

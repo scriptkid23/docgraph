@@ -42,6 +42,7 @@ def create_mcp_server(state: AppState) -> FastMCP:
                 "tags": r.tags,
                 "chunk_index": r.chunk_index,
                 "score": round(r.score, 4),
+                "rrf_score": round(r.rrf_score, 6),
                 "source_page": r.source_page,
             }
             for r in results
