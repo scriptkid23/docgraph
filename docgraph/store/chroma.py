@@ -91,3 +91,6 @@ class ChromaStore:
         existing = self._collection.get(where={"doc_id": doc_id})
         if existing["ids"]:
             self._collection.delete(ids=existing["ids"])
+
+    def count_chunks(self) -> int:
+        return int(self._collection.count())
