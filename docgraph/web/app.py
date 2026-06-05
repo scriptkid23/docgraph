@@ -171,6 +171,13 @@ def create_app(
         if doc is None:
             raise HTTPException(status_code=404, detail="not found")
         st.chroma.delete_by_doc_id(doc_id)
+        fts_store = getattr(st, "fts", None)
+        if fts_store is not None:
+            try:
+                fts_store.delete_by_doc_id(doc_id)
+            except Exception:
+                # Don't fail the user's delete request if FTS sync fails.
+                pass
         st.files.delete_doc_files(doc_id)
         st.sqlite.delete_document(doc_id)
         return {"deleted": doc_id}

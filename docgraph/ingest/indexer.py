@@ -14,6 +14,7 @@ from docgraph.ingest.crawler import UrlCrawler
 from docgraph.models import DocumentStatus, SourceType
 from docgraph.store.chroma import ChromaStore
 from docgraph.store.files import FileStore
+from docgraph.store.fts import FtsStore
 from docgraph.store.sqlite import SQLiteStore
 
 logger = logging.getLogger(__name__)
@@ -27,12 +28,14 @@ class Indexer:
         files: FileStore,
         chroma: ChromaStore,
         embedder: EmbeddingProvider,
+        fts: "FtsStore | None" = None,
     ) -> None:
         self._cfg = cfg
         self._sqlite = sqlite
         self._files = files
         self._chroma = chroma
         self._embedder = embedder
+        self._fts = fts
 
     def _progress(self, doc_id: str, pct: int, phase: str) -> None:
         self._sqlite.update_progress(doc_id, pct, phase)
@@ -84,7 +87,9 @@ class Indexer:
             vectors = await self._embed_with_progress(doc_id, chunks)
             self._progress(doc_id, 96, "Saving to index (96%)")
             chroma_chunks = []
+            fts_chunks = []
             for i, (text, vec) in enumerate(zip(chunks, vectors)):
+                chunk_id = f"{doc_id}_{i}"
                 metadata = {
                     "doc_id": doc_id,
                     "filename": doc.filename,
@@ -96,12 +101,29 @@ class Indexer:
                 if doc.source_url:
                     metadata["source_url"] = doc.source_url
                 chroma_chunks.append({
-                    "id": f"{doc_id}_{i}",
+                    "id": chunk_id,
                     "embedding": vec,
                     "text": text,
                     "metadata": metadata,
                 })
+                fts_chunks.append({
+                    "chunk_id": chunk_id,
+                    "doc_id": doc_id,
+                    "folder": doc.folder,
+                    "tags": json.dumps(doc.tags),
+                    "chunk_index": i,
+                    "text": text,
+                    "filename": doc.filename,
+                })
             self._chroma.upsert_chunks(chroma_chunks)
+            if self._fts is not None and self._cfg.hybrid_enabled:
+                try:
+                    self._fts.upsert_chunks(fts_chunks)
+                except Exception as exc:
+                    logger.warning(
+                        "FTS5 upsert failed for doc_id=%s (search will degrade to vector-only): %s",
+                        doc_id, exc,
+                    )
             self._sqlite.update_status(
                 doc_id,
                 DocumentStatus.READY,
@@ -198,6 +220,11 @@ class Indexer:
         if doc is None:
             raise ValueError(f"cannot reindex: {doc_id}")
         self._chroma.delete_by_doc_id(doc_id)
+        if self._fts is not None:
+            try:
+                self._fts.delete_by_doc_id(doc_id)
+            except Exception as exc:
+                logger.warning("FTS5 delete failed for doc_id=%s: %s", doc_id, exc)
         self._sqlite.update_status(doc_id, DocumentStatus.PROCESSING)
         self._progress(doc_id, 0, "Starting re-index (0%)")
         if doc.source_type == SourceType.URL and doc.source_url:
