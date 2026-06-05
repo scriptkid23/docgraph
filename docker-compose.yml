@@ -1,0 +1,18 @@
+services:
+  docgraph:
+    build: .
+    image: docgraph:latest
+    container_name: docgraph
+    ports:
+      - "8088:8088"
+    volumes:
+      # Persist sqlite db, chroma index, uploaded files and the ONNX model cache
+      - docgraph-data:/data
+    environment:
+      DOCGRAPH_EMBED_PROVIDER: local
+      # Use multilingual-e5-base instead for non-English documents:
+      # DOCGRAPH_LOCAL_MODEL: multilingual-e5-base
+    restart: unless-stopped
+
+volumes:
+  docgraph-data:

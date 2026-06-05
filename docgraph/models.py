@@ -43,6 +43,7 @@ class ChunkRecord:
     folder: str
     tags: list[str]
     source_page: Optional[int] = None
+    file_path: Optional[str] = None
 
 
 @dataclass
@@ -55,3 +56,6 @@ class SearchResult:
     chunk_index: int
     score: float
     source_page: Optional[int] = None
+    file_path: Optional[str] = None
+    heading_path: Optional[list[str]] = None
+    rerank_score: Optional[float] = None

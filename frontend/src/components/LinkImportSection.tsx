@@ -14,9 +14,13 @@ const idleImport: UploadProgressState = {
 
 interface LinkImportSectionProps {
   onImported: () => void;
+  embedded?: boolean;
 }
 
-export function LinkImportSection({ onImported }: LinkImportSectionProps) {
+export function LinkImportSection({
+  onImported,
+  embedded = false,
+}: LinkImportSectionProps) {
   const [urls, setUrls] = useState("");
   const [folder, setFolder] = useState("");
   const [tags, setTags] = useState("");
@@ -62,12 +66,19 @@ export function LinkImportSection({ onImported }: LinkImportSectionProps) {
     }
   }, [busy, urls, folder, tags, onImported]);
 
-  return (
-    <section className="section" aria-labelledby="links-heading">
-      <p className="label-mono" id="links-heading">
-        02 — Import links
-      </p>
-      <h2 className="section-title">Web pages</h2>
+  const content = (
+    <>
+      {!embedded && (
+        <>
+          <p className="label-mono" id="links-heading">
+            02 — Import links
+          </p>
+          <h2 className="section-title">Web pages</h2>
+        </>
+      )}
+      {embedded && (
+        <h2 className="section-title ingest-panel-title">Web pages</h2>
+      )}
       <p className="section-intro">
         Paste one URL per line. Pages are fetched with crawl4ai, converted to
         markdown, then chunked and embedded like uploaded files.
@@ -135,6 +146,16 @@ export function LinkImportSection({ onImported }: LinkImportSectionProps) {
           Import URLs
         </Button>
       </div>
+    </>
+  );
+
+  if (embedded) {
+    return content;
+  }
+
+  return (
+    <section className="section" aria-labelledby="links-heading">
+      {content}
     </section>
   );
 }

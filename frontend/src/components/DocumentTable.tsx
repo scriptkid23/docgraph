@@ -41,8 +41,8 @@ export function DocumentTable({
 
       {documents.length === 0 ? (
         <p className="empty-state">
-          No documents yet. Upload a file or import URLs above to build your
-          knowledge base.
+          No documents yet. Upload a file, import web pages, or add a code dump
+          above to build your knowledge base.
         </p>
       ) : (
         <div className="table-panel">
