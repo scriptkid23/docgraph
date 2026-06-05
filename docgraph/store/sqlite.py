@@ -39,6 +39,24 @@ class SQLiteStore:
             conn.execute(
                 "ALTER TABLE documents ADD COLUMN source_url TEXT NOT NULL DEFAULT ''"
             )
+        # Hybrid search FTS5 sparse index.
+        # contentless (content='') — text stored only in Chroma, not duplicated.
+        # tokenchars '_.-' preserves identifiers like `embed_query`, `v1.5`.
+        conn.executescript(
+            """
+            CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+                chunk_id UNINDEXED,
+                doc_id UNINDEXED,
+                folder UNINDEXED,
+                tags UNINDEXED,
+                chunk_index UNINDEXED,
+                text,
+                filename,
+                content='',
+                tokenize="unicode61 remove_diacritics 2 tokenchars '_.-'"
+            );
+            """
+        )
 
     def init_schema(self) -> None:
         with self._connect() as conn:
