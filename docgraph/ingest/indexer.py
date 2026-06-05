@@ -220,6 +220,9 @@ class Indexer:
         if doc is None:
             raise ValueError(f"cannot reindex: {doc_id}")
         self._chroma.delete_by_doc_id(doc_id)
+        # Delete from FTS unconditionally when fts is available, regardless of
+        # cfg.hybrid_enabled — purge stale rows even when hybrid is currently
+        # disabled, so toggling hybrid on later doesn't resurrect ghost results.
         if self._fts is not None:
             try:
                 self._fts.delete_by_doc_id(doc_id)

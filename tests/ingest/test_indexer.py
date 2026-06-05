@@ -92,7 +92,7 @@ async def test_reindex_clears_old_fts_rows(pipeline):
     # Delete from chroma + fts (simulating user re-index) and re-index with different content
     chroma.delete_by_doc_id("doc_re")
     fts.delete_by_doc_id("doc_re")
-    sqlite.update_status("doc_re", __import__("docgraph.models", fromlist=["DocumentStatus"]).DocumentStatus.PROCESSING)
+    sqlite.update_status("doc_re", DocumentStatus.PROCESSING)
     await indexer.index_markdown("doc_re", "Completely different content about oranges here")
     # Old chunks gone from FTS, new ones inserted
     hits = fts.search("apples", top_k=5)

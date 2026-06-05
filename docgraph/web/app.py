@@ -175,9 +175,13 @@ def create_app(
         if fts_store is not None:
             try:
                 fts_store.delete_by_doc_id(doc_id)
-            except Exception:
-                # Don't fail the user's delete request if FTS sync fails.
-                pass
+            except Exception as exc:
+                # Don't fail the user's delete request if FTS sync fails;
+                # log so stale-row drift can be diagnosed.
+                logger.warning(
+                    "FTS5 delete failed for doc_id=%s on DELETE endpoint: %s",
+                    doc_id, exc,
+                )
         st.files.delete_doc_files(doc_id)
         st.sqlite.delete_document(doc_id)
         return {"deleted": doc_id}
