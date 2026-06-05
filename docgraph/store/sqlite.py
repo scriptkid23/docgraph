@@ -39,8 +39,7 @@ class SQLiteStore:
             conn.execute(
                 "ALTER TABLE documents ADD COLUMN source_url TEXT NOT NULL DEFAULT ''"
             )
-        # Hybrid search FTS5 sparse index.
-        # contentless (content='') — text stored only in Chroma, not duplicated.
+        # Hybrid search FTS5 index.
         # tokenchars '_.-' preserves identifiers like `embed_query`, `v1.5`.
         conn.executescript(
             """
@@ -52,7 +51,6 @@ class SQLiteStore:
                 chunk_index UNINDEXED,
                 text,
                 filename,
-                content='',
                 tokenize="unicode61 remove_diacritics 2 tokenchars '_.-'"
             );
             """
