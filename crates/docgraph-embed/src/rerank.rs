@@ -24,6 +24,9 @@ fn resolve_rerank_model(name: &str) -> PyResult<RerankerModel> {
         return Ok(m);
     }
     let normalized = base.to_ascii_lowercase();
+    // NOTE: fastembed 4.9 enum variant names are unusual — `JINA` is all-caps and
+    // `Multiligual` is misspelled in the upstream library. Do not "correct" these.
+    // fastembed also dropped the V1 Base variant; only V1 Turbo exists.
     let model = match normalized.as_str() {
         "bge-reranker-base" => RerankerModel::BGERerankerBase,
         "bge-reranker-v2-m3" | "bge-reranker-v2" | "bge-m3-reranker" => {
@@ -32,14 +35,14 @@ fn resolve_rerank_model(name: &str) -> PyResult<RerankerModel> {
         "jina-reranker-v2-multilingual" | "jina-reranker-v2" => {
             RerankerModel::JINARerankerV2BaseMultiligual
         }
-        "jina-reranker-v1-base" | "jina-reranker-v1" => {
+        "jina-reranker-v1-turbo" | "jina-reranker-v1-turbo-en" => {
             RerankerModel::JINARerankerV1TurboEn
         }
         _ => {
             return Err(PyValueError::new_err(format!(
                 "unknown reranker model: {name}. \
                  Try bge-reranker-v2-m3 (default), bge-reranker-base, \
-                 jina-reranker-v2-multilingual."
+                 jina-reranker-v2-multilingual, or jina-reranker-v1-turbo."
             )));
         }
     };
@@ -107,8 +110,9 @@ pub fn rerank(py: Python<'_>, query: String, passages: Vec<String>) -> PyResult<
     let n = passages.len();
     let scores = py.allow_threads(|| -> PyResult<Vec<f32>> {
         with_state(|model, _| {
+            let refs: Vec<&str> = passages.iter().map(String::as_str).collect();
             let results = model
-                .rerank(query.clone(), passages.clone(), false, None)
+                .rerank(query.as_str(), refs, false, None)
                 .map_err(|e| PyRuntimeError::new_err(format!("rerank failed: {e}")))?;
             if results.len() != n {
                 return Err(PyRuntimeError::new_err(format!(
