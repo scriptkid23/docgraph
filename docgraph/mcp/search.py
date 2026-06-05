@@ -78,6 +78,35 @@ def _rrf_fuse(
     return sorted(fused.values(), key=lambda h: (-h.rrf_score, h.chunk_id))
 
 
+def _should_rerank(cfg: Config, fused: list[FusedHit], k: int) -> tuple[bool, str]:
+    """Return (decision, reason) for observability."""
+    if not cfg.rerank_enabled:
+        return False, "skip_disabled"
+    if len(fused) < 2:
+        return False, "skip_too_few_candidates"
+
+    top1 = fused[0].rrf_score
+
+    # A. Floor — top-1 below recall floor; rerank can't fix bad recall
+    if top1 < cfg.rerank_min_floor:
+        return False, "skip_floor"
+
+    # B. Single-branch override — only one signal fired; force rerank
+    window = fused[: max(k, 2)]
+    has_vector = any(h.vector_score is not None for h in window)
+    has_sparse = any(h.bm25_score is not None for h in window)
+    if not (has_vector and has_sparse):
+        return True, "force_single_branch"
+
+    # Default: rerank when top-k scores are clustered (ambiguous)
+    top_window = fused[:k] if len(fused) >= k else fused
+    top_scores = [h.rrf_score for h in top_window]
+    gap = top_scores[0] - top_scores[-1]
+    if top1 > 0 and gap / top1 > cfg.rerank_score_gap_ratio:
+        return False, "skip_gap"
+    return True, "force_ambiguous"
+
+
 class SearchService:
     def __init__(
         self,
