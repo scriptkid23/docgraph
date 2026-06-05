@@ -103,3 +103,55 @@ class TestFtsCRUD:
         assert fts.count_chunks() == 10
         fts.clear()
         assert fts.count_chunks() == 0
+
+
+import asyncio
+import pytest
+
+from docgraph.store.chroma import ChromaStore
+
+
+@pytest.fixture
+def chroma_and_sqlite(tmp_path):
+    cfg = Config(data_dir=tmp_path)
+    cfg.ensure_dirs()
+    sqlite = SQLiteStore(cfg)
+    sqlite.init_schema()
+    chroma = ChromaStore(cfg)
+    # Seed 3 docs (each 1 chunk) into SQLite + Chroma
+    from docgraph.models import DocumentRecord
+    for i, name in enumerate(["a", "b", "c"]):
+        sqlite.insert_document(DocumentRecord(
+            id=f"doc_{name}", filename=f"{name}.md", folder=f"f{i}", tags=[f"t{i}"]
+        ))
+    chroma.upsert_chunks([
+        {"id": f"doc_{name}_0", "embedding": [0.1] * 768, "text": f"text {name}",
+         "metadata": {"doc_id": f"doc_{name}", "filename": f"{name}.md",
+                      "folder": f"f{i}", "tags": f'["t{i}"]', "chunk_index": 0}}
+        for i, name in enumerate(["a", "b", "c"])
+    ])
+    return cfg, sqlite, chroma
+
+
+@pytest.mark.asyncio
+async def test_rebuild_from_chroma_populates_fts(chroma_and_sqlite):
+    cfg, sqlite, chroma = chroma_and_sqlite
+    fts = FtsStore(cfg)
+    assert fts.count_chunks() == 0
+    n = await fts.rebuild_from_chroma(chroma, sqlite)
+    assert n == 3
+    assert fts.count_chunks() == 3
+    hits = fts.search("text", top_k=10)
+    assert len(hits) == 3
+
+
+@pytest.mark.asyncio
+async def test_rebuild_clears_old_rows(chroma_and_sqlite):
+    cfg, sqlite, chroma = chroma_and_sqlite
+    fts = FtsStore(cfg)
+    fts.upsert_chunks([_chunk("stale_0", "stale text", doc_id="stale")])
+    assert fts.count_chunks() == 1
+    await fts.rebuild_from_chroma(chroma, sqlite)
+    hits = fts.search("stale", top_k=10)
+    assert hits == []
+    assert fts.count_chunks() == 3

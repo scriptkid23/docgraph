@@ -3,9 +3,13 @@ from __future__ import annotations
 import json
 import re
 import sqlite3
-from typing import Any, Optional
+from typing import TYPE_CHECKING, Any, Optional
 
 from docgraph.config import Config
+
+if TYPE_CHECKING:
+    from docgraph.store.chroma import ChromaStore
+    from docgraph.store.sqlite import SQLiteStore
 
 # Token characters preserved: alphanumeric, underscore, dot, hyphen.
 # Anything else (operators, quotes, punctuation) becomes a space.
@@ -172,3 +176,71 @@ class FtsStore:
                 }
             )
         return out[:top_k]
+
+    async def rebuild_from_chroma(
+        self,
+        chroma: "ChromaStore",
+        sqlite: "SQLiteStore",
+        batch_size: int = 1000,
+        progress_callback=None,
+    ) -> int:
+        """Bulk re-populate chunks_fts from Chroma's existing collection.
+
+        Clears existing chunks_fts rows first. Reads Chroma in batches of
+        ``batch_size``, looks up filename/folder/tags from SQLite documents,
+        bulk inserts to FTS5. Returns total chunks indexed. Yields between
+        batches via ``asyncio.sleep(0)`` so the event loop is not blocked.
+        """
+        import asyncio as _asyncio
+
+        self.clear()
+        total = chroma.count_chunks()
+        if total == 0:
+            return 0
+        # Cache filename/folder/tags per doc_id to avoid hitting SQLite for each chunk
+        doc_meta: dict[str, dict] = {}
+        offset = 0
+        indexed = 0
+        while offset < total:
+            batch = chroma._collection.get(
+                limit=batch_size,
+                offset=offset,
+                include=["documents", "metadatas"],
+            )
+            ids = batch.get("ids", []) or []
+            if not ids:
+                break
+            rows = []
+            for chunk_id, text, meta in zip(ids, batch["documents"], batch["metadatas"]):
+                doc_id = meta.get("doc_id", "")
+                if doc_id and doc_id not in doc_meta:
+                    rec = sqlite.get_document(doc_id)
+                    if rec is not None:
+                        doc_meta[doc_id] = {
+                            "filename": rec.filename,
+                            "folder": rec.folder,
+                            "tags": rec.tags,
+                        }
+                    else:
+                        doc_meta[doc_id] = {
+                            "filename": meta.get("filename", ""),
+                            "folder": meta.get("folder", ""),
+                            "tags": [],
+                        }
+                m = doc_meta.get(doc_id, {})
+                rows.append({
+                    "chunk_id": chunk_id,
+                    "doc_id": doc_id,
+                    "folder": m.get("folder", meta.get("folder", "")),
+                    "tags": json.dumps(m.get("tags", [])),
+                    "chunk_index": int(meta.get("chunk_index", 0)),
+                    "text": text or "",
+                    "filename": m.get("filename", meta.get("filename", "")),
+                })
+            await _asyncio.to_thread(self.upsert_chunks, rows)
+            indexed += len(rows)
+            offset += batch_size
+            if progress_callback is not None:
+                progress_callback(indexed, total)
+            await _asyncio.sleep(0)  # yield to event loop
+        return indexed
