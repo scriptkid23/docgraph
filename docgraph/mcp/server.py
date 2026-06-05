@@ -4,15 +4,12 @@ import json
 
 from mcp.server.fastmcp import FastMCP
 
-from docgraph.mcp.search import SearchService
 from docgraph.web.deps import AppState
 
 
 def create_mcp_server(state: AppState) -> FastMCP:
     mcp = FastMCP("docgraph")
-    search_svc = SearchService(
-        state.cfg, state.sqlite, state.chroma, state.embedder
-    )
+    search_svc = state.search_service()
 
     @mcp.tool()
     async def search_documents(
