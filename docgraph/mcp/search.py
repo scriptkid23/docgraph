@@ -1,5 +1,8 @@
 from __future__ import annotations
 
+import asyncio
+import logging
+import time
 from dataclasses import dataclass
 from typing import Any, Optional
 
@@ -7,7 +10,10 @@ from docgraph.config import Config
 from docgraph.embed.provider import EmbeddingProvider
 from docgraph.models import SearchResult
 from docgraph.store.chroma import ChromaStore
+from docgraph.store.fts import FtsStore
 from docgraph.store.sqlite import SQLiteStore
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -114,11 +120,15 @@ class SearchService:
         sqlite: SQLiteStore,
         chroma: ChromaStore,
         embedder: EmbeddingProvider,
+        fts: Optional[FtsStore] = None,
+        reranker=None,
     ) -> None:
         self._cfg = cfg
         self._sqlite = sqlite
         self._chroma = chroma
         self._embedder = embedder
+        self._fts = fts
+        self._reranker = reranker
 
     async def search(
         self,
@@ -127,27 +137,141 @@ class SearchService:
         folder: Optional[str] = None,
         tags: Optional[list[str]] = None,
     ) -> list[SearchResult]:
-        k = top_k or self._cfg.default_top_k
+        start = time.perf_counter()
+        k_requested = top_k if top_k is not None else self._cfg.default_top_k
+        k_requested = max(k_requested, 1)
+        k = min(k_requested, 100)
+        if k_requested > k:
+            logger.warning("top_k capped from %d to %d", k_requested, k)
+        overfetch = max(k * 6, 30)
+
+        use_hybrid = self._cfg.hybrid_enabled and self._fts is not None
+
+        # 1) Embed query (always needed for vector branch)
         vectors = await self._embedder.embed([query], for_query=True)
-        # Overfetch so the min_score filter doesn't starve the caller of results
-        # when high-quality matches exist beyond the top_k cutoff.
-        raw = self._chroma.search(
-            query_embedding=vectors[0],
-            top_k=max(k * 3, k),
-            folder=folder,
-            tags=tags,
-        )
-        filtered = [r for r in raw if r["score"] >= self._cfg.min_score]
-        return [
-            SearchResult(
-                text=r["text"],
-                doc_id=r["doc_id"],
-                filename=r["filename"],
-                folder=r["folder"],
-                tags=r["tags"],
-                chunk_index=r["chunk_index"],
-                score=r["score"],
-                source_page=r.get("source_page"),
+        query_vec = vectors[0]
+
+        # 2) Parallel branches
+        vector_task = asyncio.create_task(
+            asyncio.to_thread(
+                self._chroma.search, query_vec, overfetch, folder, tags
             )
-            for r in filtered[:k]
-        ]
+        )
+        if use_hybrid:
+            sparse_task = asyncio.create_task(
+                asyncio.to_thread(self._fts.search, query, overfetch, folder, tags)
+            )
+            vector_results, sparse_results = await asyncio.gather(
+                vector_task, sparse_task, return_exceptions=True
+            )
+            if isinstance(vector_results, BaseException):
+                logger.warning(
+                    "Vector branch failed; falling back to sparse-only: %r",
+                    vector_results,
+                )
+                vector_results = []
+            if isinstance(sparse_results, BaseException):
+                logger.warning(
+                    "Sparse branch failed; falling back to vector-only: %r",
+                    sparse_results,
+                )
+                sparse_results = []
+        else:
+            vector_results = await vector_task
+            sparse_results = []
+
+        # 3) Fuse with RRF
+        fused = _rrf_fuse(vector_results, sparse_results, k_rrf=self._cfg.rrf_k)
+        fused = fused[: max(k * 3, self._cfg.rerank_top_n)]
+
+        # Backfill text for sparse-only hits (sparse branch doesn't carry text)
+        chunk_to_text: dict[str, str] = {
+            h["id"]: h.get("text", "") for h in vector_results
+        }
+        for fh in fused:
+            if not fh.text and fh.chunk_id in chunk_to_text:
+                fh.text = chunk_to_text[fh.chunk_id]
+
+        # 4) Gate + rerank
+        decision, reason = _should_rerank(self._cfg, fused, k)
+        rerank_ran = False
+        if decision and self._reranker is not None:
+            rerank_window_raw = fused[: self._cfg.rerank_top_n]
+            rerank_window = [h for h in rerank_window_raw if h.text]
+            if not rerank_window:
+                # All candidates lacked text; cannot rerank
+                decision = False
+            if decision:
+                try:
+                    scores = await asyncio.wait_for(
+                        self._reranker.rerank(query, [h.text for h in rerank_window]),
+                        timeout=self._cfg.rerank_timeout_sec,
+                    )
+                    for h, s in zip(rerank_window, scores):
+                        h.rerank_score = float(s)
+                    # Build score map; non-reranked hits (empty text) keep rerank_score=None
+                    score_by_id = {h.chunk_id: h.rerank_score for h in rerank_window}
+
+                    def _key(h: FusedHit) -> tuple[float, str]:
+                        rs = score_by_id.get(h.chunk_id)
+                        if rs is not None:
+                            return (-rs, h.chunk_id)
+                        return (-h.rrf_score, h.chunk_id)
+
+                    rerank_window_raw.sort(key=_key)
+                    fused = rerank_window_raw + fused[self._cfg.rerank_top_n :]
+                    rerank_ran = True
+                except asyncio.TimeoutError:
+                    logger.warning(
+                        "Rerank timed out after %ss; falling back to RRF",
+                        self._cfg.rerank_timeout_sec,
+                    )
+                except Exception:
+                    logger.exception("Rerank failed; falling back to RRF")
+
+        # 5) Filter by min_score (only when no rerank score)
+        filtered: list[FusedHit] = []
+        for h in fused:
+            if h.rerank_score is not None:
+                filtered.append(h)
+            elif h.vector_score is None or h.vector_score >= self._cfg.min_score:
+                filtered.append(h)
+
+        # 6) Emit metrics log
+        total_ms = (time.perf_counter() - start) * 1000.0
+        logger.info(
+            "search_metrics",
+            extra={
+                "query_len": len(query),
+                "vector_branch_size": len(vector_results),
+                "sparse_branch_size": len(sparse_results),
+                "fused_size": len(fused),
+                "rerank_triggered": rerank_ran,
+                "rerank_reason": reason,
+                "k": k,
+                "total_ms": round(total_ms, 2),
+            },
+        )
+
+        return [self._to_result(h) for h in filtered[:k]]
+
+    @staticmethod
+    def _to_result(h: FusedHit) -> SearchResult:
+        # Score priority: rerank > vector > normalized bm25
+        if h.rerank_score is not None:
+            score = float(h.rerank_score)
+        elif h.vector_score is not None:
+            score = float(h.vector_score)
+        else:
+            # bm25 is unbounded; map roughly to [0, 1) via 1 - 1/(1+x)
+            score = 1.0 - 1.0 / (1.0 + max(float(h.bm25_score or 0.0), 0.0))
+        return SearchResult(
+            text=h.text,
+            doc_id=h.doc_id,
+            filename=h.filename,
+            folder=h.folder,
+            tags=h.tags,
+            chunk_index=h.chunk_index,
+            score=score,
+            source_page=h.source_page,
+        )
