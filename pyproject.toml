@@ -41,4 +41,5 @@ testpaths = ["tests"]
 markers = [
     "integration: tests requiring Ollama or external services",
     "benchmark: performance baseline tests (uses pytest-benchmark)",
+    "rerank_model: tests requiring the real BGE-reranker-v2-m3 ONNX model (~600MB download, native Rust crate required)",
 ]

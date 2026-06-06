@@ -71,3 +71,68 @@ class TestRerankerWrapper:
         r = Reranker(model="bge-reranker-v2-m3", cache_dir=tmp_path)
         with pytest.raises(RuntimeError, match="maturin develop"):
             await r.rerank("q", ["p"])
+
+
+@pytest.mark.rerank_model
+class TestRerankerWithRealModel:
+    """Downloads ~600MB BGE-reranker-v2-m3 ONNX model on first run.
+
+    Opt-in: run with `poetry run pytest -m rerank_model`. Requires the Rust
+    crate to be built (`cd crates/docgraph-embed && env -u CONDA_PREFIX \
+    -u CONDA_DEFAULT_ENV -u CONDA_SHLVL -u CONDA_PROMPT_MODIFIER \
+    maturin develop --release`).
+    """
+
+    @pytest.fixture(scope="class")
+    def event_loop(self):
+        import asyncio
+        loop = asyncio.new_event_loop()
+        yield loop
+        loop.close()
+
+    @pytest.fixture(scope="class")
+    async def reranker(self, tmp_path_factory):
+        from docgraph.embed.rerank import Reranker
+        cache = tmp_path_factory.mktemp("models")
+        r = Reranker(model="bge-reranker-v2-m3", cache_dir=cache)
+        await r.prewarm()
+        return r
+
+    @pytest.mark.asyncio
+    async def test_relevance_ordering(self, reranker):
+        scores = await reranker.rerank(
+            "What does DocGraph use for vector storage?",
+            [
+                "DocGraph stores vectors in ChromaDB with cosine similarity.",
+                "The web UI is built with React and Vite.",
+                "MarkItDown converts files to Markdown.",
+            ],
+        )
+        assert len(scores) == 3
+        assert scores[0] > scores[1]
+        assert scores[0] > scores[2]
+
+    @pytest.mark.asyncio
+    async def test_multilingual_vn_en(self, reranker):
+        scores = await reranker.rerank(
+            "DocGraph dùng database nào để lưu vector?",
+            [
+                "DocGraph stores vectors in ChromaDB.",
+                "User interface built with React.",
+            ],
+        )
+        assert scores[0] > scores[1]
+
+    @pytest.mark.asyncio
+    async def test_concurrent_rerank_no_deadlock(self, reranker):
+        import asyncio
+        results = await asyncio.gather(*[
+            reranker.rerank(f"query {i}", ["passage A", "passage B"]) for i in range(5)
+        ])
+        assert all(len(r) == 2 for r in results)
+
+    @pytest.mark.asyncio
+    async def test_empty_and_single_passage(self, reranker):
+        assert await reranker.rerank("q", []) == []
+        scores = await reranker.rerank("q", ["only one"])
+        assert len(scores) == 1
