@@ -46,14 +46,28 @@ class TestRerankerWrapper:
         assert mod.rerank_init.call_count == 1
 
     @pytest.mark.asyncio
-    async def test_prewarm_does_not_raise_on_failure(self, tmp_path, monkeypatch):
-        # rerank raises but prewarm must NOT propagate
+    async def test_prewarm_does_not_raise_on_warmup_failure(self, tmp_path, monkeypatch):
+        # rerank_init succeeds, warmup rerank raises but prewarm must NOT propagate.
         mod = self._install_mock_module(
             monkeypatch,
             rerank_fn=MagicMock(side_effect=RuntimeError("model not ready")),
         )
         r = Reranker(model="bge-reranker-v2-m3", cache_dir=tmp_path)
         await r.prewarm()  # must not raise
+        # Init succeeded, so _initialized is True.
+        assert r._initialized is True
+
+    @pytest.mark.asyncio
+    async def test_prewarm_does_not_raise_on_init_failure(self, tmp_path, monkeypatch):
+        # rerank_init itself raises. _initialized stays False so a real call retries.
+        mod = self._install_mock_module(
+            monkeypatch,
+            init_fn=MagicMock(side_effect=RuntimeError("model download failed")),
+        )
+        r = Reranker(model="bge-reranker-v2-m3", cache_dir=tmp_path)
+        await r.prewarm()  # must not raise
+        # Init failed, so _initialized stays False — next call will retry init.
+        assert r._initialized is False
 
     @pytest.mark.asyncio
     async def test_import_error_raises_helpful_message(self, tmp_path, monkeypatch):

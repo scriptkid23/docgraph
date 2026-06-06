@@ -59,15 +59,32 @@ class Reranker:
 
     async def prewarm(self) -> None:
         """Force model load + dummy inference at server lifespan startup.
-        Swallows errors so server start cannot fail because of reranker."""
+        Swallows errors so server start cannot fail because of reranker.
+
+        Two failure modes are handled distinctly so log messages match reality:
+          - init failure: ``_initialized`` stays False, next ``rerank`` call
+            will retry init.
+          - warmup inference failure (init OK, dummy rerank crashed): the
+            model loaded but inference is broken. ``_initialized`` stays True,
+            so future calls will NOT retry init — they will hit the same
+            inference bug. Log accordingly instead of misleading "will retry".
+        """
         try:
             await self._ensure_init()
+        except Exception as exc:
+            logger.warning(
+                "Reranker init failed; will retry on first call: %s", exc
+            )
+            return
+        try:
             native = self._import_native()
             await asyncio.to_thread(native.rerank, "warmup", ["test passage"])
             logger.info("Reranker pre-warmed")
         except Exception as exc:
             logger.warning(
-                "Rerank pre-warm failed (will retry on first call): %s", exc
+                "Reranker warmup inference failed; rerank() calls may fail "
+                "the same way (model loaded but inference broken): %s",
+                exc,
             )
 
     async def rerank(self, query: str, passages: list[str]) -> list[float]:
