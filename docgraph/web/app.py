@@ -120,6 +120,7 @@ def create_app(
     @app.get("/api/health")
     async def health(request: Request):
         st: AppState = request.app.state.docgraph
+        cfg = st.cfg
         ollama_ok = True
         ollama_error = ""
         try:
@@ -127,12 +128,44 @@ def create_app(
         except Exception as exc:
             ollama_ok = False
             ollama_error = str(exc)
-        mcp_url = f"http://{st.cfg.web_host}:{st.cfg.web_port}/mcp/sse"
+        mcp_url = f"http://{cfg.web_host}:{cfg.web_port}/mcp/sse"
+
+        # Reranker status: disabled | error | loading | ready
+        # - disabled: cfg.rerank_enabled is False (intentional)
+        # - error: cfg.rerank_enabled is True but reranker was not constructed (misconfig)
+        # - loading: reranker constructed but native model not yet initialized
+        # - ready: native model initialized and serving
+        if not cfg.rerank_enabled:
+            rerank_status = "disabled"
+        elif st.reranker is None:
+            rerank_status = "error"
+        elif st.reranker.is_ready:
+            rerank_status = "ready"
+        else:
+            rerank_status = "loading"
+
+        # FTS sync (count_chunks may block; offload)
+        chroma_n = await asyncio.to_thread(st.chroma.count_chunks)
+        fts_n = (
+            await asyncio.to_thread(st.fts.count_chunks)
+            if st.fts is not None else None
+        )
+        fts_in_sync = (
+            None if fts_n is None
+            else abs(chroma_n - fts_n) <= max(10, chroma_n * 0.05)
+        )
+
         return {
             "status": "ok",
             "ollama": {"ok": ollama_ok, "error": ollama_error},
-            "embed_provider": st.cfg.embed_provider,
+            "embed_provider": cfg.embed_provider,
             "mcp_sse_url": mcp_url,
+            "hybrid_enabled": cfg.hybrid_enabled,
+            "rerank_enabled": cfg.rerank_enabled,
+            "rerank_status": rerank_status,
+            "chroma_chunks": chroma_n,
+            "fts_chunks": fts_n,
+            "fts_in_sync": fts_in_sync,
         }
 
     @app.get("/api/documents")

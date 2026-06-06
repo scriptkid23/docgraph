@@ -25,6 +25,11 @@ class Reranker:
         self._init_lock = asyncio.Lock()
         self._initialized = False
 
+    @property
+    def is_ready(self) -> bool:
+        """True once the native model has been initialized."""
+        return self._initialized
+
     def _import_native(self):
         try:
             import docgraph_embed
