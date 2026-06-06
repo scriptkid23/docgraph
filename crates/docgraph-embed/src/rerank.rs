@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::Mutex;
+use std::sync::RwLock;
 
 use fastembed::{RerankInitOptions, RerankerModel, TextRerank};
 use once_cell::sync::OnceCell;
@@ -12,10 +12,10 @@ struct RerankState {
     model_label: String,
 }
 
-static RERANK_STATE: OnceCell<Mutex<Option<RerankState>>> = OnceCell::new();
+static RERANK_STATE: OnceCell<RwLock<Option<RerankState>>> = OnceCell::new();
 
-fn state_mutex() -> &'static Mutex<Option<RerankState>> {
-    RERANK_STATE.get_or_init(|| Mutex::new(None))
+fn state_rwlock() -> &'static RwLock<Option<RerankState>> {
+    RERANK_STATE.get_or_init(|| RwLock::new(None))
 }
 
 fn resolve_rerank_model(name: &str) -> PyResult<RerankerModel> {
@@ -65,18 +65,16 @@ fn load_rerank_model(model_name: &str, cache_dir: Option<&str>) -> PyResult<Rera
     })
 }
 
-fn with_state<F, T>(f: F) -> PyResult<T>
+fn with_state<F, T>(f: F) -> Result<T, String>
 where
-    F: FnOnce(&TextRerank, &str) -> PyResult<T>,
+    F: FnOnce(&TextRerank, &str) -> Result<T, String>,
 {
-    let guard = state_mutex()
-        .lock()
-        .map_err(|_| PyRuntimeError::new_err("rerank lock poisoned"))?;
+    let guard = state_rwlock()
+        .read()
+        .map_err(|_| "rerank lock poisoned".to_string())?;
     let state = guard
         .as_ref()
-        .ok_or_else(|| {
-            PyRuntimeError::new_err("reranker not initialized; call rerank_init() first")
-        })?;
+        .ok_or_else(|| "reranker not initialized; call rerank_init() first".to_string())?;
     f(&state.model, &state.model_label)
 }
 
@@ -85,8 +83,8 @@ where
 pub fn rerank_init(model: &str, cache_dir: Option<&str>) -> PyResult<()> {
     let loaded =
         Python::with_gil(|py| py.allow_threads(|| load_rerank_model(model, cache_dir)))?;
-    let mut guard = state_mutex()
-        .lock()
+    let mut guard = state_rwlock()
+        .write()
         .map_err(|_| PyRuntimeError::new_err("rerank lock poisoned"))?;
     *guard = Some(loaded);
     Ok(())
@@ -94,12 +92,12 @@ pub fn rerank_init(model: &str, cache_dir: Option<&str>) -> PyResult<()> {
 
 #[pyfunction]
 pub fn rerank_health_check() -> PyResult<()> {
-    with_state(|_, _| Ok(()))
+    with_state(|_, _| Ok(())).map_err(PyRuntimeError::new_err)
 }
 
 #[pyfunction]
 pub fn active_rerank_model() -> PyResult<String> {
-    with_state(|_, label| Ok(label.to_string()))
+    with_state(|_, label| Ok(label.to_string())).map_err(PyRuntimeError::new_err)
 }
 
 #[pyfunction]
@@ -108,31 +106,33 @@ pub fn rerank(py: Python<'_>, query: String, passages: Vec<String>) -> PyResult<
         return Ok(vec![]);
     }
     let n = passages.len();
-    let scores = py.allow_threads(|| -> PyResult<Vec<f32>> {
+    // Inside allow_threads we ONLY produce Result<_, String> — no PyErr construction.
+    let result: Result<Vec<f32>, String> = py.allow_threads(|| {
         with_state(|model, _| {
             let refs: Vec<&str> = passages.iter().map(String::as_str).collect();
             let results = model
                 .rerank(query.as_str(), refs, false, None)
-                .map_err(|e| PyRuntimeError::new_err(format!("rerank failed: {e}")))?;
+                .map_err(|e| format!("rerank failed: {e}"))?;
             if results.len() != n {
-                return Err(PyRuntimeError::new_err(format!(
+                return Err(format!(
                     "rerank: expected {} scores, got {}",
                     n,
                     results.len()
-                )));
+                ));
             }
             let mut by_index = vec![0.0f32; n];
             for r in results {
                 if r.index >= n {
-                    return Err(PyRuntimeError::new_err(format!(
+                    return Err(format!(
                         "rerank: result index {} out of bounds for {} passages",
                         r.index, n
-                    )));
+                    ));
                 }
                 by_index[r.index] = r.score;
             }
             Ok(by_index)
         })
-    })?;
-    Ok(scores)
+    });
+    // PyErr constructed here, with GIL held (we're back outside allow_threads).
+    result.map_err(PyRuntimeError::new_err)
 }

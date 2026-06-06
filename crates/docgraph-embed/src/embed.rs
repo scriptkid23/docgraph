@@ -1,6 +1,6 @@
 use std::path::PathBuf;
 use std::str::FromStr;
-use std::sync::Mutex;
+use std::sync::RwLock;
 
 use fastembed::{EmbeddingModel, InitOptions, TextEmbedding};
 use once_cell::sync::OnceCell;
@@ -14,10 +14,10 @@ struct EmbedState {
     dim: usize,
 }
 
-static STATE: OnceCell<Mutex<Option<EmbedState>>> = OnceCell::new();
+static STATE: OnceCell<RwLock<Option<EmbedState>>> = OnceCell::new();
 
-fn state_mutex() -> &'static Mutex<Option<EmbedState>> {
-    STATE.get_or_init(|| Mutex::new(None))
+fn state_rwlock() -> &'static RwLock<Option<EmbedState>> {
+    STATE.get_or_init(|| RwLock::new(None))
 }
 
 /// Map friendly names to fastembed ONNX models.
@@ -82,25 +82,25 @@ fn load_model(model_name: &str, cache_dir: Option<&str>) -> PyResult<EmbedState>
     })
 }
 
-fn with_state<F, T>(f: F) -> PyResult<T>
+fn with_state<F, T>(f: F) -> Result<T, String>
 where
-    F: FnOnce(&mut TextEmbedding, usize, &str) -> PyResult<T>,
+    F: FnOnce(&TextEmbedding, usize, &str) -> Result<T, String>,
 {
-    let mut guard = state_mutex()
-        .lock()
-        .map_err(|_| PyRuntimeError::new_err("embedder lock poisoned"))?;
+    let guard = state_rwlock()
+        .read()
+        .map_err(|_| "embedder lock poisoned".to_string())?;
     let state = guard
-        .as_mut()
-        .ok_or_else(|| PyRuntimeError::new_err("embedder not initialized; call init() first"))?;
-    f(&mut state.model, state.dim, &state.model_label)
+        .as_ref()
+        .ok_or_else(|| "embedder not initialized; call init() first".to_string())?;
+    f(&state.model, state.dim, &state.model_label)
 }
 
 #[pyfunction]
 #[pyo3(signature = (model="nomic-embed-text", cache_dir=None))]
 pub fn init(model: &str, cache_dir: Option<&str>) -> PyResult<()> {
     let loaded = Python::with_gil(|py| py.allow_threads(|| load_model(model, cache_dir)))?;
-    let mut guard = state_mutex()
-        .lock()
+    let mut guard = state_rwlock()
+        .write()
         .map_err(|_| PyRuntimeError::new_err("embedder lock poisoned"))?;
     *guard = Some(loaded);
     Ok(())
@@ -108,17 +108,17 @@ pub fn init(model: &str, cache_dir: Option<&str>) -> PyResult<()> {
 
 #[pyfunction]
 pub fn health_check() -> PyResult<()> {
-    with_state(|_, _, _| Ok(()))
+    with_state(|_, _, _| Ok(())).map_err(PyRuntimeError::new_err)
 }
 
 #[pyfunction]
 pub fn embedding_dimension() -> PyResult<usize> {
-    with_state(|_, dim, _| Ok(dim))
+    with_state(|_, dim, _| Ok(dim)).map_err(PyRuntimeError::new_err)
 }
 
 #[pyfunction]
 pub fn active_model() -> PyResult<String> {
-    with_state(|_, _, label| Ok(label.to_string()))
+    with_state(|_, _, label| Ok(label.to_string())).map_err(PyRuntimeError::new_err)
 }
 
 #[pyfunction]
@@ -127,32 +127,35 @@ pub fn embed(py: Python<'_>, texts: Vec<String>) -> PyResult<Py<PyList>> {
         return Ok(PyList::empty(py).unbind());
     }
 
-    let vectors = py.allow_threads(|| {
+    // Inside allow_threads we ONLY produce Result<_, String> — no PyErr construction.
+    let result: Result<Vec<Vec<f32>>, String> = py.allow_threads(|| {
         with_state(|model, dim, _| {
             let refs: Vec<&str> = texts.iter().map(String::as_str).collect();
             let embeddings = model
                 .embed(refs, None)
-                .map_err(|e| PyRuntimeError::new_err(format!("embed failed: {e}")))?;
+                .map_err(|e| format!("embed failed: {e}"))?;
             if embeddings.len() != texts.len() {
-                return Err(PyRuntimeError::new_err(format!(
+                return Err(format!(
                     "expected {} embeddings, got {}",
                     texts.len(),
                     embeddings.len()
-                )));
+                ));
             }
             for (i, vec) in embeddings.iter().enumerate() {
                 if vec.len() != dim {
-                    return Err(PyRuntimeError::new_err(format!(
+                    return Err(format!(
                         "embedding {} has dim {} (expected {})",
                         i,
                         vec.len(),
                         dim
-                    )));
+                    ));
                 }
             }
             Ok(embeddings)
         })
-    })?;
+    });
+    // PyErr constructed here, with GIL held (we're back outside allow_threads).
+    let vectors = result.map_err(PyRuntimeError::new_err)?;
 
     let py_list = PyList::empty(py);
     for vec in vectors {
