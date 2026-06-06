@@ -97,12 +97,14 @@ def _should_rerank(cfg: Config, fused: list[FusedHit], k: int) -> tuple[bool, st
     if top1 < cfg.rerank_min_floor:
         return False, "skip_floor"
 
-    # B. Single-branch override — only one signal fired; force rerank
-    window = fused[: max(k, 2)]
-    has_vector = any(h.vector_score is not None for h in window)
-    has_sparse = any(h.bm25_score is not None for h in window)
-    if not (has_vector and has_sparse):
-        return True, "force_single_branch"
+    # B. Single-branch override — only fires when hybrid was supposed to fire
+    # but one branch came back empty. Skip when hybrid is intentionally disabled.
+    if cfg.hybrid_enabled:
+        window = fused[: max(k, 2)]
+        has_vector = any(h.vector_score is not None for h in window)
+        has_sparse = any(h.bm25_score is not None for h in window)
+        if not (has_vector and has_sparse):
+            return True, "force_single_branch"
 
     # Default: rerank when top-k scores are clustered (ambiguous)
     top_window = fused[:k] if len(fused) >= k else fused
@@ -138,8 +140,10 @@ class SearchService:
         tags: Optional[list[str]] = None,
     ) -> list[SearchResult]:
         start = time.perf_counter()
-        k_requested = top_k if top_k is not None else self._cfg.default_top_k
-        k_requested = max(k_requested, 1)
+        # top_k=0 was a documented "use default" sentinel under the old vector-only
+        # code path. Preserve that semantics: 0 and None both mean default.
+        k_requested = top_k if top_k else self._cfg.default_top_k
+        k_requested = max(k_requested, 1)  # guard negative values
         k = min(k_requested, 100)
         if k_requested > k:
             logger.warning("top_k capped from %d to %d", k_requested, k)
@@ -230,6 +234,12 @@ class SearchService:
                     logger.exception("Rerank failed; falling back to RRF")
 
         # 5) Filter by min_score (only when no rerank score)
+        # Note: sparse-only hits (vector_score is None) bypass min_score by design.
+        # An exact identifier or filename match via BM25 should not be dropped just
+        # because the vector branch had no high-confidence cosine match. The reranker
+        # (when enabled) provides the precision gate for these hits. When reranker
+        # is disabled or fails silently, low-quality BM25 hits CAN leak through —
+        # tune `min_score` higher or set `cfg.rerank_enabled=True` to mitigate.
         filtered: list[FusedHit] = []
         for h in fused:
             if h.rerank_score is not None:

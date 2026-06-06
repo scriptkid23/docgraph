@@ -160,6 +160,15 @@ class TestHybridPipeline:
         assert len(results) > 0
 
     @pytest.mark.asyncio
+    async def test_top_k_zero_falls_back_to_default(self, seeded):
+        """top_k=0 should fall back to cfg.default_top_k, not return 1 result."""
+        cfg, sqlite, chroma, fts = seeded
+        cfg.default_top_k = 3
+        svc = SearchService(cfg, sqlite, chroma, FakeEmbedder(), fts=fts, reranker=None)
+        results = await svc.search("DocGraph", top_k=0)
+        assert len(results) == 3  # default_top_k, not 1
+
+    @pytest.mark.asyncio
     async def test_empty_text_hits_excluded_from_rerank(self, seeded):
         cfg, sqlite, chroma, fts = seeded
         cfg.rerank_score_gap_ratio = 0.99

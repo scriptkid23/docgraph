@@ -92,3 +92,25 @@ class TestShouldRerank:
         decision, reason = _should_rerank(cfg, cands, k=5)
         assert decision is False
         assert reason == "skip_floor"
+
+    def test_should_rerank_skips_single_branch_when_hybrid_disabled(self, cfg):
+        """When cfg.hybrid_enabled=False, the single-branch override must NOT fire
+        just because all hits are vector-only. Otherwise reranker runs on every
+        query in non-hybrid setups."""
+        cfg.hybrid_enabled = False
+        # All vector-only hits (bm25=None) but ambiguous scores so the gap check
+        # is the deciding branch.
+        cands = [_hit(rrf=0.03, has_sparse=False, chunk_id=f"c{i}") for i in range(5)]
+        decision, reason = _should_rerank(cfg, cands, k=5)
+        # Should NOT be force_single_branch.
+        assert reason != "force_single_branch", (
+            f"single-branch override fired when hybrid was disabled: {reason}"
+        )
+
+    def test_should_rerank_fires_single_branch_when_hybrid_enabled_one_empty(self, cfg):
+        """When hybrid_enabled=True and one branch returns nothing, force rerank."""
+        cfg.hybrid_enabled = True
+        cands = [_hit(rrf=0.03, has_sparse=False, chunk_id=f"c{i}") for i in range(3)]
+        decision, reason = _should_rerank(cfg, cands, k=5)
+        assert decision is True
+        assert reason == "force_single_branch"

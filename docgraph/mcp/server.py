@@ -18,7 +18,14 @@ def create_mcp_server(state: AppState) -> FastMCP:
         folder: str | None = None,
         top_k: int | None = None,
     ) -> str:
-        """Semantic search over uploaded documents. Returns relevant chunks with metadata."""
+        """Semantic search over uploaded documents. Returns relevant chunks with metadata.
+
+        Args:
+            query: The search query string.
+            tags: Optional list of tags to filter results.
+            folder: Optional folder path to restrict the search scope.
+            top_k: Maximum number of results (1-100). Values >100 are silently capped to 100. Default: cfg.default_top_k (5).
+        """
         try:
             results = await search_svc.search(
                 query=query, top_k=top_k, folder=folder, tags=tags
