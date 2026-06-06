@@ -19,9 +19,11 @@ _TOKEN_KEEP = re.compile(r"[^\w\s_.-]", flags=re.UNICODE)
 def _sanitize_query(text: str) -> str:
     """Convert raw user input to a safe FTS5 MATCH expression.
 
-    Wraps each token in double quotes so FTS5 treats it as a phrase literal.
-    This neutralizes operators (AND, OR, NOT, NEAR, *, +, etc.) and special
-    chars. Empty / whitespace / fully-stripped input returns "".
+    Wraps each token in double quotes so FTS5 treats it as a phrase literal,
+    then joins with ``OR`` so any one token can match. AND-conjunction (the
+    FTS5 default when phrases are space-separated) yields zero recall for
+    multi-word natural-language queries — the reranker is the precision gate.
+    Empty / whitespace / fully-stripped input returns "".
     """
     if not text:
         return ""
@@ -29,7 +31,7 @@ def _sanitize_query(text: str) -> str:
     tokens = [t for t in cleaned.split() if t]
     if not tokens:
         return ""
-    return " ".join(f'"{t}"' for t in tokens)
+    return " OR ".join(f'"{t}"' for t in tokens)
 
 
 def _decode_tags(raw: Any) -> list[str]:
