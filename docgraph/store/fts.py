@@ -51,6 +51,21 @@ def _decode_tags(raw: Any) -> list[str]:
 
 _FNAME_NORMALIZE = re.compile(r"[._-]")
 
+# FTS5 virtual table DDL, parameterized by table name (use % formatting).
+# Must stay in sync with the CREATE VIRTUAL TABLE in sqlite.py.
+_FTS_DDL = (
+    "CREATE VIRTUAL TABLE {table} USING fts5("
+    "chunk_id UNINDEXED, "
+    "doc_id UNINDEXED, "
+    "folder UNINDEXED, "
+    "tags UNINDEXED, "
+    "chunk_index UNINDEXED, "
+    "text, "
+    "filename, "
+    "tokenize=\"unicode61 remove_diacritics 2 tokenchars '_.-'\""
+    ")"
+)
+
 
 def _normalize_filename(fname: str) -> str:
     """Replace dot / underscore / hyphen with spaces for FTS indexing.
@@ -143,7 +158,7 @@ class FtsStore:
         # bm25() weights map to ALL columns including UNINDEXED, so we
         # supply 7 weights: filename gets 2.0 to rank filename matches higher.
         sql = (
-            "SELECT chunk_id, doc_id, folder, tags, chunk_index, "
+            "SELECT chunk_id, doc_id, folder, tags, chunk_index, text, filename, "
             "       bm25(chunks_fts, 1,1,1,1,1,1,2) AS bm25_score "
             "FROM chunks_fts WHERE chunks_fts MATCH ? "
         )
@@ -170,12 +185,37 @@ class FtsStore:
                     "folder": r["folder"],
                     "tags": chunk_tags,
                     "chunk_index": int(r["chunk_index"]),
+                    "text": r["text"] or "",
+                    "filename": r["filename"] or "",
                     # Flip sign so "higher score = more relevant" matches
                     # vector cosine convention.
                     "bm25_score": -float(r["bm25_score"]),
                 }
             )
         return out[:top_k]
+
+    def _upsert_chunks_into(self, conn: sqlite3.Connection, table: str, chunks: list[dict]) -> None:
+        """Insert chunks into an arbitrary FTS table (used by rebuild staging)."""
+        if not chunks:
+            return
+        rows = [
+            (
+                c["chunk_id"],
+                c["doc_id"],
+                c.get("folder", ""),
+                c.get("tags", "[]"),
+                c.get("chunk_index", 0),
+                c["text"],
+                _normalize_filename(c.get("filename", "")),
+            )
+            for c in chunks
+        ]
+        conn.executemany(
+            f"INSERT INTO {table} "
+            "(chunk_id, doc_id, folder, tags, chunk_index, text, filename) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
+            rows,
+        )
 
     async def rebuild_from_chroma(
         self,
@@ -186,61 +226,99 @@ class FtsStore:
     ) -> int:
         """Bulk re-populate chunks_fts from Chroma's existing collection.
 
-        Clears existing chunks_fts rows first. Reads Chroma in batches of
-        ``batch_size``, looks up filename/folder/tags from SQLite documents,
-        bulk inserts to FTS5. Returns total chunks indexed. Yields between
-        batches via ``asyncio.sleep(0)`` so the event loop is not blocked.
+        Uses an atomic staging approach to avoid a window where chunks_fts is
+        empty (#5) and to survive crashes without leaving FTS permanently empty
+        (#6):
+          1. Create chunks_fts_staging (drop first if leftover from a prior crash).
+          2. Populate staging in batches — live chunks_fts is untouched.
+          3. In a single transaction: DROP chunks_fts, RENAME staging → chunks_fts.
+
+        If an exception fires mid-rebuild, chunks_fts is intact. The leftover
+        staging table is cleaned up by the next call's DROP IF EXISTS.
+
+        Yields between batches via ``asyncio.sleep(0)`` so the event loop is
+        not blocked.
         """
         import asyncio as _asyncio
 
-        self.clear()
         total = chroma.count_chunks()
         if total == 0:
+            # Nothing in Chroma — wipe live table and return 0.
+            self.clear()
             return 0
-        # Cache filename/folder/tags per doc_id to avoid hitting SQLite for each chunk
+
+        # Step 1 — create staging table (drop leftover if any)
+        def _create_staging() -> None:
+            with self._connect() as conn:
+                conn.execute("DROP TABLE IF EXISTS chunks_fts_staging")
+                conn.execute(_FTS_DDL.format(table="chunks_fts_staging"))
+
+        await _asyncio.to_thread(_create_staging)
+
+        # Step 2 — populate staging in batches
         doc_meta: dict[str, dict] = {}
         offset = 0
         indexed = 0
-        while offset < total:
-            batch = chroma._collection.get(
-                limit=batch_size,
-                offset=offset,
-                include=["documents", "metadatas"],
-            )
-            ids = batch.get("ids", []) or []
-            if not ids:
-                break
-            rows = []
-            for chunk_id, text, meta in zip(ids, batch["documents"], batch["metadatas"]):
-                doc_id = meta.get("doc_id", "")
-                if doc_id and doc_id not in doc_meta:
-                    rec = sqlite.get_document(doc_id)
-                    if rec is not None:
-                        doc_meta[doc_id] = {
-                            "filename": rec.filename,
-                            "folder": rec.folder,
-                            "tags": rec.tags,
-                        }
-                    else:
-                        doc_meta[doc_id] = {
-                            "filename": meta.get("filename", ""),
-                            "folder": meta.get("folder", ""),
-                            "tags": [],
-                        }
-                m = doc_meta.get(doc_id, {})
-                rows.append({
-                    "chunk_id": chunk_id,
-                    "doc_id": doc_id,
-                    "folder": m.get("folder", meta.get("folder", "")),
-                    "tags": json.dumps(m.get("tags", [])),
-                    "chunk_index": int(meta.get("chunk_index", 0)),
-                    "text": text or "",
-                    "filename": m.get("filename", meta.get("filename", "")),
-                })
-            await _asyncio.to_thread(self.upsert_chunks, rows)
-            indexed += len(rows)
-            offset += batch_size
-            if progress_callback is not None:
-                progress_callback(indexed, total)
-            await _asyncio.sleep(0)  # yield to event loop
+        try:
+            while offset < total:
+                batch = chroma._collection.get(
+                    limit=batch_size,
+                    offset=offset,
+                    include=["documents", "metadatas"],
+                )
+                ids = batch.get("ids", []) or []
+                if not ids:
+                    break
+                rows = []
+                for chunk_id, text, meta in zip(ids, batch["documents"], batch["metadatas"]):
+                    doc_id = meta.get("doc_id", "")
+                    if doc_id and doc_id not in doc_meta:
+                        rec = sqlite.get_document(doc_id)
+                        if rec is not None:
+                            doc_meta[doc_id] = {
+                                "filename": rec.filename,
+                                "folder": rec.folder,
+                                "tags": rec.tags,
+                            }
+                        else:
+                            doc_meta[doc_id] = {
+                                "filename": meta.get("filename", ""),
+                                "folder": meta.get("folder", ""),
+                                "tags": [],
+                            }
+                    m = doc_meta.get(doc_id, {})
+                    rows.append({
+                        "chunk_id": chunk_id,
+                        "doc_id": doc_id,
+                        "folder": m.get("folder", meta.get("folder", "")),
+                        "tags": json.dumps(m.get("tags", [])),
+                        "chunk_index": int(meta.get("chunk_index", 0)),
+                        "text": text or "",
+                        "filename": m.get("filename", meta.get("filename", "")),
+                    })
+
+                def _insert_batch(r=rows) -> None:
+                    with self._connect() as conn:
+                        self._upsert_chunks_into(conn, "chunks_fts_staging", r)
+
+                await _asyncio.to_thread(_insert_batch)
+                indexed += len(rows)
+                offset += batch_size
+                if progress_callback is not None:
+                    progress_callback(indexed, total)
+                await _asyncio.sleep(0)  # yield to event loop
+        except Exception:
+            # Leave staging behind — next rebuild's DROP IF EXISTS cleans it.
+            # Live chunks_fts is still intact.
+            raise
+
+        # Step 3 — atomic swap: drop live, rename staging → live
+        def _atomic_swap() -> None:
+            with self._connect() as conn:
+                conn.execute("DROP TABLE IF EXISTS chunks_fts")
+                conn.execute(
+                    "ALTER TABLE chunks_fts_staging RENAME TO chunks_fts"
+                )
+
+        await _asyncio.to_thread(_atomic_swap)
         return indexed

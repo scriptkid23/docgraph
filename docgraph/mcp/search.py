@@ -68,9 +68,9 @@ def _rrf_fuse(
         else:
             fused[cid] = FusedHit(
                 chunk_id=cid,
-                text="",  # sparse path doesn't carry text; will be filled later
+                text=hit.get("text", ""),
                 doc_id=hit.get("doc_id", ""),
-                filename="",
+                filename=hit.get("filename", ""),
                 folder=hit.get("folder", ""),
                 tags=list(hit.get("tags") or []),
                 chunk_index=int(hit.get("chunk_index", 0)),

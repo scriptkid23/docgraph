@@ -176,11 +176,14 @@ class TestHybridPipeline:
         svc = SearchService(
             cfg, sqlite, chroma, FakeEmbedder(), fts=fts, reranker=CapturingReranker()
         )
-        # Inject a sparse-only chunk into FTS with no Chroma counterpart, so backfill
-        # cannot find text for it.
+        # Inject a sparse-only chunk into FTS with *empty text* and no Chroma
+        # counterpart — tests the defensive backstop that filters h.text == ""
+        # from the rerank window.  (Since FTS now carries text, a non-empty
+        # ghost chunk would correctly be included in rerank — this variant
+        # with text="" remains the canonical test for the empty-text guard.)
         fts.upsert_chunks([{
             "chunk_id": "ghost_0", "doc_id": "ghost", "folder": "x", "tags": "[]",
-            "chunk_index": 0, "text": "this text lives only in FTS5",
+            "chunk_index": 0, "text": "",
             "filename": "ghost.md",
         }])
         await svc.search("FTS5")
@@ -190,6 +193,6 @@ class TestHybridPipeline:
             f"{received_passages[0]}"
         )
         assert all(p for p in received_passages[0]), (
-            "reranker received an empty-string passage — sparse-only hits without "
-            f"vector backfill should be excluded. Got: {received_passages[0]}"
+            "reranker received an empty-string passage — hits without text "
+            f"should be excluded. Got: {received_passages[0]}"
         )

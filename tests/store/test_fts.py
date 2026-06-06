@@ -155,3 +155,44 @@ async def test_rebuild_clears_old_rows(chroma_and_sqlite):
     hits = fts.search("stale", top_k=10)
     assert hits == []
     assert fts.count_chunks() == 3
+
+
+@pytest.mark.asyncio
+async def test_rebuild_does_not_empty_table_on_failure(chroma_and_sqlite):
+    """If the staging insert raises, live chunks_fts must remain intact."""
+    cfg, sqlite, chroma = chroma_and_sqlite
+    fts = FtsStore(cfg)
+    # Seed the live table with 1 pre-existing chunk
+    fts.upsert_chunks([_chunk("pre_0", "pre-existing chunk", doc_id="pre")])
+    assert fts.count_chunks() == 1
+
+    import asyncio as _asyncio
+
+    original_upsert = fts._upsert_chunks_into
+
+    def _raise(conn, table, rows):
+        raise RuntimeError("simulated staging failure")
+
+    fts._upsert_chunks_into = _raise
+    with pytest.raises(RuntimeError, match="simulated staging failure"):
+        await fts.rebuild_from_chroma(chroma, sqlite)
+
+    fts._upsert_chunks_into = original_upsert
+
+    # Live table still has the pre-existing chunk
+    assert fts.count_chunks() > 0
+
+
+def test_search_returns_text_and_filename(fts):
+    """search() result dicts must include non-empty 'text' and 'filename'."""
+    fts.upsert_chunks([
+        _chunk("doc_x_0", "The quick brown fox", filename="quickfox.md"),
+    ])
+    hits = fts.search("quick brown", top_k=5)
+    assert len(hits) == 1
+    hit = hits[0]
+    assert "text" in hit
+    assert "filename" in hit
+    assert hit["text"] == "The quick brown fox"
+    # filename is normalized (dots → spaces) but non-empty
+    assert hit["filename"] != ""
