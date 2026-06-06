@@ -65,8 +65,8 @@ class TestRerankConfig:
         assert cfg.rrf_k == 60
         assert cfg.rerank_enabled is True
         assert cfg.rerank_model == "bge-reranker-v2-m3"
-        assert cfg.rerank_top_n == 15
-        assert cfg.rerank_timeout_sec == 3.0
+        assert cfg.rerank_top_n == 8
+        assert cfg.rerank_timeout_sec == 15.0
         assert cfg.rerank_prewarm is True
         assert cfg.rerank_score_gap_ratio == 0.5
         assert cfg.rerank_min_floor == 0.015

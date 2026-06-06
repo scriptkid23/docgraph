@@ -42,8 +42,8 @@ class Config:
     # Reranker
     rerank_enabled: bool = True
     rerank_model: str = "bge-reranker-v2-m3"
-    rerank_top_n: int = 15
-    rerank_timeout_sec: float = 3.0
+    rerank_top_n: int = 8
+    rerank_timeout_sec: float = 15.0
     rerank_prewarm: bool = True
     # Auto-rerank gate
     rerank_score_gap_ratio: float = 0.5
