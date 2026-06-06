@@ -135,6 +135,21 @@ class FtsStore:
                 rows,
             )
 
+    def update_doc_metadata(self, doc_id: str, folder: str, tags: list[str]) -> None:
+        """Update folder + tags for all chunks belonging to doc_id.
+
+        Tags are stored as a JSON string in the FTS5 row (consistent with how
+        upsert_chunks encodes them).
+        FTS5 virtual tables support UPDATE on contentful tables (no ``content=''``
+        option was used in the DDL).
+        """
+        tags_json = json.dumps(tags)
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE chunks_fts SET folder = ?, tags = ? WHERE doc_id = ?",
+                (folder, tags_json, doc_id),
+            )
+
     def delete_by_doc_id(self, doc_id: str) -> None:
         with self._connect() as conn:
             conn.execute("DELETE FROM chunks_fts WHERE doc_id = ?", (doc_id,))

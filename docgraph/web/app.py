@@ -280,7 +280,11 @@ def create_app(
         if doc is None:
             raise HTTPException(status_code=404, detail="not found")
         tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+        # Update all three stores in lockstep to avoid metadata drift.
         st.sqlite.update_tags_folder(doc_id, tag_list, folder)
+        st.chroma.update_doc_metadata(doc_id, folder, tag_list)
+        if st.fts is not None:
+            st.fts.update_doc_metadata(doc_id, folder, tag_list)
         return {"doc_id": doc_id, "folder": folder, "tags": tag_list}
 
     @app.post("/api/documents/{doc_id}/reindex", status_code=202)

@@ -45,3 +45,24 @@ def test_count_chunks(tmp_path):
         {"id": "a_1", "embedding": [0.2] * 768, "text": "y", "metadata": {"doc_id": "a"}},
     ])
     assert store.count_chunks() == 2
+
+
+def test_update_doc_metadata_changes_folder_and_tags(tmp_path):
+    cfg = Config(data_dir=tmp_path)
+    cfg.ensure_dirs()
+    chroma = ChromaStore(cfg)
+    chroma.upsert_chunks([{
+        "id": "d_0", "embedding": [0.1] * 768, "text": "hello",
+        "metadata": {"doc_id": "d", "filename": "f.md", "folder": "old",
+                     "tags": '["a"]', "chunk_index": 0},
+    }])
+    chroma.update_doc_metadata("d", "new", ["b"])
+    # Should find in new folder
+    hits = chroma.search([0.1] * 768, top_k=10, folder="new")
+    assert len(hits) >= 1
+    assert hits[0]["folder"] == "new"
+    # ChromaStore.search already JSON-decodes tags via _decode_tags
+    assert hits[0]["tags"] == ["b"]
+    # Old folder should return nothing
+    old_hits = chroma.search([0.1] * 768, top_k=10, folder="old")
+    assert old_hits == []

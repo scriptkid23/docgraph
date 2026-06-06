@@ -196,3 +196,26 @@ def test_search_returns_text_and_filename(fts):
     assert hit["text"] == "The quick brown fox"
     # filename is normalized (dots → spaces) but non-empty
     assert hit["filename"] != ""
+
+
+def test_update_doc_metadata_changes_folder_and_tags(tmp_path):
+    cfg = Config(data_dir=tmp_path)
+    cfg.ensure_dirs()
+    sqlite = SQLiteStore(cfg)
+    sqlite.init_schema()
+    fts = FtsStore(cfg)
+    fts.upsert_chunks([
+        {"chunk_id": "d_0", "doc_id": "d", "folder": "old", "tags": '["a"]',
+         "chunk_index": 0, "text": "hello", "filename": "f.md"},
+        {"chunk_id": "d_1", "doc_id": "d", "folder": "old", "tags": '["a"]',
+         "chunk_index": 1, "text": "world", "filename": "f.md"},
+    ])
+    fts.update_doc_metadata("d", "new", ["b", "c"])
+    # Old folder no longer matches
+    assert fts.search("hello", folder="old") == []
+    # New folder matches the updated chunk
+    new_hits = fts.search("hello", folder="new")
+    assert len(new_hits) >= 1
+    # Tags reflect the new value
+    for h in new_hits:
+        assert h["tags"] == ["b", "c"]
