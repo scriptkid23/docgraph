@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -57,6 +59,53 @@ async def _run_import_urls(
         logger.exception("URL batch import failed (%d items)", len(items))
 
 
+def _log_task_exception(task: asyncio.Task) -> None:
+    """Done-callback that logs exceptions from fire-and-forget tasks."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.warning("Background task failed", exc_info=exc)
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    state = app.state.docgraph
+    cfg = state.cfg
+    # Pre-warm reranker in background
+    if cfg.rerank_enabled and cfg.rerank_prewarm and state.reranker is not None:
+        t = asyncio.create_task(state.reranker.prewarm())
+        t.add_done_callback(_log_task_exception)
+    # Auto-rebuild FTS if empty + Chroma populated; warn-only if stale-but-nonempty.
+    # NOTE: count_chunks() is potentially I/O-blocking; offloaded so the event loop
+    # accepts connections while we read.
+    # KNOWN RACE: if a user uploads a document while auto-rebuild runs, the rebuild's
+    # internal clear() can wipe the new doc's FTS rows (the new doc was added to Chroma
+    # AFTER our snapshot count, so it won't be re-indexed). Window is narrow (startup
+    # only when FTS was empty); workaround is to run `docgraph rebuild-fts` after.
+    if cfg.hybrid_enabled and state.fts is not None:
+        chroma_n = await asyncio.to_thread(state.chroma.count_chunks)
+        fts_n = await asyncio.to_thread(state.fts.count_chunks)
+        if fts_n == 0 and chroma_n > 0:
+            logger.warning(
+                "FTS index empty but Chroma has %d chunks. Auto-rebuilding in background.",
+                chroma_n,
+            )
+            t = asyncio.create_task(
+                state.fts.rebuild_from_chroma(state.chroma, state.sqlite)
+            )
+            t.add_done_callback(_log_task_exception)
+        # Drift threshold is strict `>`: exactly `max(10, 5%)` drift does NOT warn.
+        # 10-chunk floor avoids noise on small corpora (e.g., chroma=20 → 5%=1, floor=10).
+        elif chroma_n > 0 and abs(chroma_n - fts_n) > max(10, chroma_n * 0.05):
+            logger.warning(
+                "FTS index out of sync (chroma=%d, fts=%d). "
+                "Run `docgraph rebuild-fts` to fix.",
+                chroma_n, fts_n,
+            )
+    yield
+
+
 def create_app(
     cfg: Config,
     *,
@@ -65,7 +114,7 @@ def create_app(
 ) -> FastAPI:
     if state is None:
         state = AppState.create(cfg)
-    app = FastAPI(title="DocGraph", version="2.0.0")
+    app = FastAPI(title="DocGraph", version="2.0.0", lifespan=_lifespan)
     app.state.docgraph = state
 
     @app.get("/api/health")
