@@ -271,8 +271,11 @@ class WatcherManager:
         self._sqlite.update_watched_path(doc.id, dest)
 
     async def _reconcile_dir(self, wd) -> None:
-        # Filled by Task 15.
-        pass
+        from docgraph.watch.reconcile import reconcile_dir
+        try:
+            await reconcile_dir(self, wd)
+        except Exception:
+            logger.exception("reconcile failed for wd=%s path=%s", wd.id, wd.path)
 
     async def _recovery_loop(self) -> None:
         # Filled by Task 15.
