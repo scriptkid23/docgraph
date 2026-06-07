@@ -4,6 +4,7 @@ from pathlib import Path
 import pytest
 
 from docgraph.config import Config
+from docgraph.models import WatchedDirRecord
 from docgraph.store.sqlite import SQLiteStore
 
 
@@ -90,9 +91,6 @@ def test_partial_unique_rejects_duplicate_non_null_watched_path(cfg: Config):
                 "VALUES ('d2', 'b', '', '[]', 'watched', 'ready', '/tmp/x.md')"
             )
         conn.commit()
-
-
-from docgraph.models import WatchedDirRecord
 
 
 def test_insert_and_list_watched_dirs(cfg: Config):

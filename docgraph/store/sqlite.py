@@ -270,7 +270,6 @@ class SQLiteStore:
                 (wd.id, wd.path, wd.folder, json.dumps(wd.tags),
                  json.dumps(wd.ignore_globs), wd.created_at),
             )
-            conn.commit()
 
     def list_watched_dirs(self) -> list[WatchedDirRecord]:
         with self._connect() as conn:
@@ -305,7 +304,6 @@ class SQLiteStore:
     def delete_watched_dir(self, wd_id: str) -> bool:
         with self._connect() as conn:
             cur = conn.execute("DELETE FROM watched_dirs WHERE id = ?", (wd_id,))
-            conn.commit()
             return cur.rowcount > 0
 
     # ------------------------------------------------------------------
@@ -326,4 +324,3 @@ class SQLiteStore:
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (key, value),
             )
-            conn.commit()
