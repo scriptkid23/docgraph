@@ -1,0 +1,33 @@
+# VCS / tooling
+.git
+.gitignore
+.cursor
+.harness
+.codegraph
+.pytest_cache
+.mypy_cache
+
+# Python
+.venv
+**/__pycache__/
+*.pyc
+*.egg-info/
+dist/
+
+# Frontend (node_modules rebuilt in image; static rebuilt from source)
+frontend/node_modules
+frontend/dist
+
+# Rust build artifacts
+crates/**/target
+
+# Local data / secrets
+.env
+.env.*
+*.db
+data/
+docs/
+
+# Docker
+Dockerfile
+.dockerignore

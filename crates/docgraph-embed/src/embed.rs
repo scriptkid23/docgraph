@@ -157,13 +157,9 @@ pub fn embed(py: Python<'_>, texts: Vec<String>) -> PyResult<Py<PyList>> {
     // PyErr constructed here, with GIL held (we're back outside allow_threads).
     let vectors = result.map_err(PyRuntimeError::new_err)?;
 
-    let py_list = PyList::empty(py);
-    for vec in vectors {
-        let row = PyList::empty(py);
-        for v in vec {
-            row.append(v)?;
-        }
-        py_list.append(row)?;
-    }
-    Ok(py_list.unbind())
+    let rows = vectors
+        .into_iter()
+        .map(|vec| PyList::new(py, vec))
+        .collect::<PyResult<Vec<_>>>()?;
+    Ok(PyList::new(py, rows)?.unbind())
 }

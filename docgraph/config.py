@@ -36,6 +36,13 @@ class Config:
     crawl_timeout_sec: int = 30
     max_urls_per_import: int = 50
     max_chunks_per_doc: int = 5000
+    # Chunking
+    tokenizer_source: str = "auto"
+    heading_prefix_enabled: bool = True
+    atomic_blocks_enabled: bool = True
+    code_chunker: str = "regex"
+    dedup_enabled: bool = True
+    mmr_lambda: float = 0.7
     # Hybrid search
     hybrid_enabled: bool = True
     rrf_k: int = 60
@@ -118,12 +125,22 @@ def _apply_yaml(cfg: Config, data: dict[str, Any]) -> None:
         cfg.max_chunks_per_doc = int(
             ingest.get("max_chunks_per_doc", cfg.max_chunks_per_doc)
         )
+        cfg.tokenizer_source = ingest.get("tokenizer_source", cfg.tokenizer_source)
+        cfg.heading_prefix_enabled = bool(
+            ingest.get("heading_prefix_enabled", cfg.heading_prefix_enabled)
+        )
+        cfg.atomic_blocks_enabled = bool(
+            ingest.get("atomic_blocks_enabled", cfg.atomic_blocks_enabled)
+        )
+        cfg.code_chunker = ingest.get("code_chunker", cfg.code_chunker)
     if crawl := data.get("crawl"):
         cfg.crawl_timeout_sec = int(crawl.get("timeout_sec", cfg.crawl_timeout_sec))
         cfg.max_urls_per_import = int(crawl.get("max_urls_per_import", cfg.max_urls_per_import))
     if search := data.get("search"):
         cfg.default_top_k = int(search.get("default_top_k", cfg.default_top_k))
         cfg.min_score = float(search.get("min_score", cfg.min_score))
+        cfg.dedup_enabled = bool(search.get("dedup_enabled", cfg.dedup_enabled))
+        cfg.mmr_lambda = float(search.get("mmr_lambda", cfg.mmr_lambda))
         cfg.hybrid_enabled = bool(search.get("hybrid_enabled", cfg.hybrid_enabled))
         cfg.rrf_k = int(search.get("rrf_k", cfg.rrf_k))
         if rerank := search.get("rerank"):
@@ -144,6 +161,8 @@ def _apply_yaml(cfg: Config, data: dict[str, Any]) -> None:
 def _apply_env(cfg: Config) -> None:
     if v := os.getenv("DOCGRAPH_DATA_DIR"):
         cfg.data_dir = _expand_path(v)
+    if v := os.getenv("DOCGRAPH_WEB_HOST"):
+        cfg.web_host = v
     if v := os.getenv("DOCGRAPH_WEB_PORT"):
         cfg.web_port = int(v)
     if v := os.getenv("DOCGRAPH_EMBED_PROVIDER"):
@@ -166,6 +185,20 @@ def _apply_env(cfg: Config) -> None:
         cfg.crawl_timeout_sec = int(v)
     if v := os.getenv("DOCGRAPH_MAX_URLS_PER_IMPORT"):
         cfg.max_urls_per_import = int(v)
+    if v := os.getenv("DOCGRAPH_CHUNK_OVERLAP"):
+        cfg.chunk_overlap = int(v)
+    if v := os.getenv("DOCGRAPH_TOKENIZER_SOURCE"):
+        cfg.tokenizer_source = v
+    if v := os.getenv("DOCGRAPH_HEADING_PREFIX"):
+        cfg.heading_prefix_enabled = v.lower() in ("1", "true", "yes")
+    if v := os.getenv("DOCGRAPH_ATOMIC_BLOCKS"):
+        cfg.atomic_blocks_enabled = v.lower() in ("1", "true", "yes")
+    if v := os.getenv("DOCGRAPH_CODE_CHUNKER"):
+        cfg.code_chunker = v
+    if v := os.getenv("DOCGRAPH_DEDUP_ENABLED"):
+        cfg.dedup_enabled = v.lower() in ("1", "true", "yes")
+    if v := os.getenv("DOCGRAPH_MMR_LAMBDA"):
+        cfg.mmr_lambda = float(v)
 
     def _bool(v: str) -> bool:
         return v.strip().lower() in ("1", "true", "yes", "on")

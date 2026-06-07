@@ -33,9 +33,6 @@ def test_upsert_and_search(tmp_data_dir):
 
 
 def test_count_chunks(tmp_path):
-    from docgraph.config import Config
-    from docgraph.store.chroma import ChromaStore
-
     cfg = Config(data_dir=tmp_path)
     cfg.ensure_dirs()
     store = ChromaStore(cfg)
@@ -66,3 +63,20 @@ def test_update_doc_metadata_changes_folder_and_tags(tmp_path):
     # Old folder should return nothing
     old_hits = chroma.search([0.1] * 768, top_k=10, folder="old")
     assert old_hits == []
+
+
+def test_search_returns_file_path(tmp_data_dir):
+    cfg = Config(data_dir=tmp_data_dir)
+    cfg.ensure_dirs()
+    store = ChromaStore(cfg)
+    store.upsert_chunks([{
+        "id": "d_0",
+        "embedding": [0.1] * 768,
+        "text": "def a(): return 1",
+        "metadata": {
+            "doc_id": "d", "filename": "dump.txt", "folder": "",
+            "tags": "[]", "chunk_index": 0, "file_path": "src/a.py",
+        },
+    }])
+    results = store.search(query_embedding=[0.1] * 768, top_k=1)
+    assert results[0]["file_path"] == "src/a.py"

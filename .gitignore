@@ -41,3 +41,5 @@ frontend/dist/
 # Rust embedder
 crates/**/target/
 *.pyd
+
+.codegraph/

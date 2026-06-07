@@ -41,8 +41,16 @@ class AppState:
         )
 
     def indexer(self) -> Indexer:
+        from docgraph.ingest.tokenizer import get_token_counter
+
         return Indexer(
-            self.cfg, self.sqlite, self.files, self.chroma, self.embedder, fts=self.fts
+            self.cfg,
+            self.sqlite,
+            self.files,
+            self.chroma,
+            self.embedder,
+            fts=self.fts,
+            counter=get_token_counter(self.cfg),
         )
 
     def search_service(self) -> "SearchService":

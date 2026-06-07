@@ -2,8 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { fetchDocuments, fetchHealth } from "./api";
 import { DocumentTable } from "./components/DocumentTable";
 import { Header } from "./components/Header";
-import { LinkImportSection } from "./components/LinkImportSection";
-import { UploadSection } from "./components/UploadSection";
+import { IngestTabs } from "./components/IngestTabs";
 import { SectionRule } from "./components/ui/SectionRule";
 import type { Document, HealthInfo } from "./types";
 
@@ -80,9 +79,7 @@ export default function App() {
         />
         <SectionRule ultra />
         <main id="main">
-          <UploadSection onUploaded={() => void refreshDocs()} />
-          <SectionRule />
-          <LinkImportSection onImported={() => void refreshDocs()} />
+          <IngestTabs onChanged={() => void refreshDocs()} />
           <SectionRule thick />
           <DocumentTable
             documents={documents}

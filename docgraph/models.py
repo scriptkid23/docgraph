@@ -43,6 +43,7 @@ class ChunkRecord:
     folder: str
     tags: list[str]
     source_page: Optional[int] = None
+    file_path: Optional[str] = None
 
 
 @dataclass
@@ -59,3 +60,6 @@ class SearchResult:
     # vector and BM25 regimes). Does not reflect post-rerank reordering.
     rrf_score: float = 0.0
     source_page: Optional[int] = None
+    file_path: Optional[str] = None
+    heading_path: Optional[list[str]] = None
+    rerank_score: Optional[float] = None
