@@ -337,6 +337,21 @@ class Indexer:
             )
             raise
 
+    async def index_text_direct(self, doc_id: str, text: str) -> None:
+        """Chunk + index raw text without conversion. For native-text files."""
+        doc = self._sqlite.get_document(doc_id)
+        if doc is None:
+            raise ValueError(f"document not found: {doc_id}")
+        logger.info("indexing text-direct doc_id=%s chars=%d", doc_id, len(text))
+        try:
+            self._progress(doc_id, 20, "Skipping conversion — native text (20%)")
+            await self.index_markdown(doc_id, text)
+        except Exception as exc:
+            self._sqlite.update_status(
+                doc_id, DocumentStatus.ERROR, error_message=str(exc),
+            )
+            raise
+
     async def index_url(
         self,
         doc_id: str,
