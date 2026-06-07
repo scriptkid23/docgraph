@@ -103,7 +103,23 @@ async def _lifespan(app: FastAPI):
                 "Run `docgraph rebuild-fts` to fix.",
                 chroma_n, fts_n,
             )
-    yield
+    # Auto-enable watcher if persisted state says so.
+    persisted = state.sqlite.get_watcher_state("enabled")
+    if persisted == "true":
+        try:
+            await state.watcher.enable()
+            logger.info("watcher auto-enabled on startup")
+        except Exception:
+            logger.exception("watcher auto-enable failed")
+    try:
+        yield
+    finally:
+        # Disable watcher cleanly on shutdown.
+        try:
+            if state.watcher.state.value == "enabled":
+                await state.watcher.disable()
+        except Exception:
+            logger.exception("watcher disable on shutdown failed")
 
 
 def create_app(

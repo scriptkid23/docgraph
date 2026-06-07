@@ -13,6 +13,7 @@ from docgraph.store import ChromaStore, FileStore, FtsStore, SQLiteStore
 if TYPE_CHECKING:
     from docgraph.embed.rerank import Reranker
     from docgraph.mcp.search import SearchService
+    from docgraph.watch.manager import WatcherManager
 
 logger = logging.getLogger(__name__)
 
@@ -27,6 +28,7 @@ class AppState:
     fts: Optional[FtsStore] = field(default=None)
     reranker: Optional["Reranker"] = field(default=None)
     _indexer: Optional[Indexer] = field(default=None, repr=False)
+    _watcher: Optional["WatcherManager"] = field(default=None, repr=False, compare=False)
 
     @classmethod
     def create(cls, cfg: Config) -> "AppState":
@@ -58,6 +60,13 @@ class AppState:
                 counter=get_token_counter(self.cfg),
             )
         return self._indexer
+
+    @property
+    def watcher(self) -> "WatcherManager":
+        if self._watcher is None:
+            from docgraph.watch.manager import WatcherManager
+            self._watcher = WatcherManager(self)
+        return self._watcher
 
     def search_service(self) -> "SearchService":
         from docgraph.mcp.search import SearchService  # deferred to avoid circular import
