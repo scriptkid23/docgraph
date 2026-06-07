@@ -58,3 +58,85 @@ def test_server_unreachable(capsys):
     assert rc == 1
     err = capsys.readouterr().err
     assert "server not running" in err.lower()
+
+
+def test_disable_command(capsys):
+    with patch("docgraph.cli_watch.httpx.Client") as m:
+        m.return_value.__enter__.return_value.post.return_value = _resp(
+            200, {"enabled": False, "queue_drained": 5, "queue_dropped": 0}
+        )
+        rc = run_watch_command(["disable"], "http://127.0.0.1:8088")
+    assert rc == 0
+
+
+def test_list_command(capsys, tmp_path):
+    with patch("docgraph.cli_watch.httpx.Client") as m:
+        m.return_value.__enter__.return_value.get.return_value = _resp(200, {
+            "dirs": [
+                {"id": "wd_a", "path": str(tmp_path), "folder": "notes",
+                 "tags": ["personal"], "ignore_globs": [],
+                 "created_at": "2026-06-07T00:00:00Z", "doc_count": 3},
+            ],
+        })
+        rc = run_watch_command(["list"], "http://127.0.0.1:8088")
+    assert rc == 0
+    out = capsys.readouterr().out
+    assert "wd_a" in out
+    assert "docs=3" in out
+
+
+def test_list_command_empty(capsys):
+    with patch("docgraph.cli_watch.httpx.Client") as m:
+        m.return_value.__enter__.return_value.get.return_value = _resp(200, {"dirs": []})
+        rc = run_watch_command(["list"], "http://127.0.0.1:8088")
+    assert rc == 0
+    assert "no watched dirs" in capsys.readouterr().out.lower()
+
+
+def test_remove_command(capsys):
+    with patch("docgraph.cli_watch.httpx.Client") as m:
+        m.return_value.__enter__.return_value.delete.return_value = _resp(
+            200, {"id": "wd_a", "deleted_docs": 0, "unwatched": True}
+        )
+        rc = run_watch_command(["remove", "wd_a"], "http://127.0.0.1:8088")
+    assert rc == 0
+    # Verify default delete_docs=false was passed.
+    call = m.return_value.__enter__.return_value.delete.call_args
+    assert call.kwargs["params"]["delete_docs"] == "false"
+
+
+def test_remove_command_with_delete_docs(capsys):
+    with patch("docgraph.cli_watch.httpx.Client") as m:
+        m.return_value.__enter__.return_value.delete.return_value = _resp(
+            200, {"id": "wd_a", "deleted_docs": 7, "unwatched": True}
+        )
+        rc = run_watch_command(
+            ["remove", "wd_a", "--delete-docs"], "http://127.0.0.1:8088",
+        )
+    assert rc == 0
+    call = m.return_value.__enter__.return_value.delete.call_args
+    assert call.kwargs["params"]["delete_docs"] == "true"
+
+
+def test_reconcile_command(capsys):
+    with patch("docgraph.cli_watch.httpx.Client") as m:
+        m.return_value.__enter__.return_value.post.return_value = _resp(
+            200, {"reconcile_started": True, "dirs": 2}
+        )
+        rc = run_watch_command(["reconcile"], "http://127.0.0.1:8088")
+    assert rc == 0
+
+
+def test_http_error_returns_exit_code_2(capsys):
+    import httpx
+    err_response = MagicMock()
+    err_response.status_code = 409
+    err_response.text = '{"detail": "watcher transition in progress"}'
+    err = httpx.HTTPStatusError("conflict", request=MagicMock(), response=err_response)
+    with patch("docgraph.cli_watch.httpx.Client") as m:
+        m.return_value.__enter__.return_value.post.return_value = _resp(409, {})
+        m.return_value.__enter__.return_value.post.return_value.raise_for_status.side_effect = err
+        rc = run_watch_command(["enable"], "http://127.0.0.1:8088")
+    assert rc == 2
+    stderr = capsys.readouterr().err
+    assert "409" in stderr

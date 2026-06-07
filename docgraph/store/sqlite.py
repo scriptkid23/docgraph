@@ -13,12 +13,17 @@ class SQLiteStore:
         self._path = cfg.sqlite_path
 
     def _connect(self) -> sqlite3.Connection:
-        conn = sqlite3.connect(self._path)
+        # 5s busy_timeout lets SQLite wait for write locks to clear before
+        # raising OperationalError("database is locked"). Replaces the spec's
+        # Python-level 3× retry — SQLite handles the wait natively and the
+        # bound (~5s) exceeds any reasonable lock-hold (typically <100ms).
+        conn = sqlite3.connect(self._path, timeout=5.0)
         conn.row_factory = sqlite3.Row
         # WAL lets the UI poll /api/documents while the indexer writes progress
         # without lock contention. NORMAL sync is safe enough for a local tool.
         conn.execute("PRAGMA journal_mode=WAL")
         conn.execute("PRAGMA synchronous=NORMAL")
+        conn.execute("PRAGMA busy_timeout=5000")
         return conn
 
     def _migrate_schema(self, conn: sqlite3.Connection) -> None:

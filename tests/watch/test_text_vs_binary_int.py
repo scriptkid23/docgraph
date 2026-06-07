@@ -80,3 +80,46 @@ async def test_reindex_watched_updates_mtime(state: AppState, wd: WatchedDirReco
     await indexer.reindex_watched("d_r", p, False, mtime2)
     doc = state.sqlite.get_document("d_r")
     assert doc.mtime_ns == mtime2
+
+
+@pytest.mark.asyncio
+async def test_oserror_marks_doc_error(state: AppState, wd: WatchedDirRecord):
+    """File vanishes between watcher event and read → doc → ERROR (spec §9)."""
+    from docgraph.models import DocumentStatus
+    p = Path(wd.path) / "doomed.md"
+    p.write_text("body")
+    mtime = p.stat().st_mtime_ns
+    # Delete the file so read_text raises FileNotFoundError (OSError subclass)
+    # AFTER the watcher has captured mtime — simulates race between event and read.
+    p.unlink()
+    indexer = state.indexer()
+    with pytest.raises(FileNotFoundError):
+        await indexer.index_watched_new("d_lost", p, wd, False, mtime)
+    doc = state.sqlite.get_document("d_lost")
+    assert doc is not None
+    assert doc.status == DocumentStatus.ERROR
+    assert "doomed.md" in (doc.error_message or "")
+
+
+@pytest.mark.asyncio
+async def test_reindex_oserror_marks_doc_error(state: AppState, wd: WatchedDirRecord):
+    """OSError during reindex marks doc ERROR, not stuck in PROCESSING."""
+    from docgraph.models import DocumentStatus
+    p = Path(wd.path) / "racy.md"
+    p.write_text("v1")
+    mtime1 = p.stat().st_mtime_ns
+    indexer = state.indexer()
+    indexer.index_text_direct = AsyncMock()
+    # Insert as READY so claim_for_reindex succeeds.
+    from docgraph.models import DocumentRecord
+    state.sqlite.insert_document(DocumentRecord(
+        id="d_r", filename="racy.md", folder="", tags=[],
+        source_type=SourceType.WATCHED, status=DocumentStatus.READY,
+        watched_path=str(p), materialize=False, mtime_ns=mtime1,
+    ))
+    p.unlink()
+    assert state.sqlite.claim_for_reindex("d_r") is True
+    with pytest.raises(FileNotFoundError):
+        await indexer.reindex_watched("d_r", p, False, mtime1 + 1)
+    doc = state.sqlite.get_document("d_r")
+    assert doc.status == DocumentStatus.ERROR

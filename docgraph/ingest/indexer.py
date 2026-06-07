@@ -437,19 +437,27 @@ class Indexer:
             mtime_ns=mtime_ns,
             original_path="",
         )
-        if materialize:
-            content = await asyncio.to_thread(watched_path.read_bytes)
-            orig_path = self._files.save_original(doc_id, watched_path.name, content)
-            doc.original_path = str(orig_path)
+        # Pre-insert before any file I/O so OSError below can mark doc ERROR.
         self._sqlite.insert_document(doc)
         self._sqlite.update_progress(doc_id, 0, "Queued for watched-index (0%)")
-        if materialize:
-            await self.index_document(doc_id, Path(doc.original_path))
-        else:
-            text = await asyncio.to_thread(
-                watched_path.read_text, encoding="utf-8", errors="ignore"
+        try:
+            if materialize:
+                content = await asyncio.to_thread(watched_path.read_bytes)
+                orig_path = self._files.save_original(doc_id, watched_path.name, content)
+                self._sqlite.update_original_path(doc_id, str(orig_path))
+                await self.index_document(doc_id, orig_path)
+            else:
+                text = await asyncio.to_thread(
+                    watched_path.read_text, encoding="utf-8", errors="ignore"
+                )
+                await self.index_text_direct(doc_id, text)
+        except OSError as exc:
+            # Permission denied, disk full, file vanished mid-read — surface
+            # to user as ERROR rather than leaving doc PROCESSING forever.
+            self._sqlite.update_status(
+                doc_id, DocumentStatus.ERROR, error_message=str(exc),
             )
-            await self.index_text_direct(doc_id, text)
+            raise
         # The underlying index_* methods set status READY with proper
         # chunk_count + markdown_path. Do NOT re-call update_status here —
         # the default kwargs would zero those fields (see code review #9).
@@ -470,20 +478,26 @@ class Indexer:
             except Exception as exc:
                 logger.warning("FTS5 delete failed for doc_id=%s: %s", doc_id, exc)
         self._progress(doc_id, 0, "Re-indexing watched file (0%)")
-        if materialize:
-            doc = self._sqlite.get_document(doc_id)
-            old_orig = Path(doc.original_path) if doc.original_path else None
-            content = await asyncio.to_thread(watched_path.read_bytes)
-            new_orig = self._files.save_original(doc_id, watched_path.name, content)
-            self._sqlite.update_original_path(doc_id, str(new_orig))
-            if old_orig and old_orig != new_orig and old_orig.exists():
-                old_orig.unlink(missing_ok=True)
-            await self.index_document(doc_id, new_orig)
-        else:
-            text = await asyncio.to_thread(
-                watched_path.read_text, encoding="utf-8", errors="ignore"
+        try:
+            if materialize:
+                doc = self._sqlite.get_document(doc_id)
+                old_orig = Path(doc.original_path) if doc.original_path else None
+                content = await asyncio.to_thread(watched_path.read_bytes)
+                new_orig = self._files.save_original(doc_id, watched_path.name, content)
+                self._sqlite.update_original_path(doc_id, str(new_orig))
+                if old_orig and old_orig != new_orig and old_orig.exists():
+                    old_orig.unlink(missing_ok=True)
+                await self.index_document(doc_id, new_orig)
+            else:
+                text = await asyncio.to_thread(
+                    watched_path.read_text, encoding="utf-8", errors="ignore"
+                )
+                await self.index_text_direct(doc_id, text)
+        except OSError as exc:
+            self._sqlite.update_status(
+                doc_id, DocumentStatus.ERROR, error_message=str(exc),
             )
-            await self.index_text_direct(doc_id, text)
+            raise
         self._sqlite.update_mtime_ns(doc_id, mtime_ns)
 
     async def reindex_document(self, doc_id: str) -> None:
