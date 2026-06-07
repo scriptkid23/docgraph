@@ -2,11 +2,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import uuid as _uuid
 from datetime import datetime, timezone
+from pathlib import Path
 
 from watchdog.observers import Observer
 
+from docgraph.ingest.lang_dispatch import detect_materialize
 from docgraph.watch.handler import DocgraphEventHandler
+from docgraph.watch.ignore import IgnoreMatcher
 from docgraph.watch.types import WatcherState, WatcherStats, WatchEvent
 
 _ACTION_MAP = {
@@ -167,9 +171,104 @@ class WatcherManager:
             logger.warning("watcher queue full; dropping event: %s %s", event.action, event.src_path)
 
     async def _start_workers(self) -> None:
-        # Filled by Task 13.
-        self._queues = [asyncio.Queue(maxsize=max(1, self._cfg.watch_queue_capacity // self._cfg.watch_workers))
-                        for _ in range(self._cfg.watch_workers)]
+        per_worker = max(1, self._cfg.watch_queue_capacity // self._cfg.watch_workers)
+        self._queues = [asyncio.Queue(maxsize=per_worker) for _ in range(self._cfg.watch_workers)]
+        self._workers = [
+            asyncio.create_task(self._worker_loop(i))
+            for i in range(self._cfg.watch_workers)
+        ]
+        # Cache ignore matchers per watched dir (refresh each enable).
+        self._ignore_matchers: dict[str, IgnoreMatcher] = {}
+        for wd in self._sqlite.list_watched_dirs():
+            self._ignore_matchers[wd.id] = IgnoreMatcher(wd)
+
+    async def _worker_loop(self, worker_id: int) -> None:
+        queue = self._queues[worker_id]
+        while not self._shutdown.is_set():
+            try:
+                event = await asyncio.wait_for(queue.get(), timeout=1.0)
+            except asyncio.TimeoutError:
+                continue
+            try:
+                if event.action == "UPSERT":
+                    await self._handle_upsert(event.src_path)
+                elif event.action == "DELETE":
+                    await self._handle_delete(event.src_path)
+                elif event.action == "RENAME":
+                    await self._handle_rename(event.src_path, event.dest_path)
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("worker=%d failed on %s", worker_id, event)
+            finally:
+                queue.task_done()
+
+    def _lookup_wd_for_path(self, p: Path):
+        for wd in self._sqlite.list_watched_dirs():
+            try:
+                p.relative_to(wd.path)
+                return wd
+            except ValueError:
+                continue
+        return None
+
+    async def _handle_upsert(self, path: str) -> None:
+        p = Path(path)
+        if not p.exists() or not p.is_file():
+            return
+        wd = self._lookup_wd_for_path(p)
+        if wd is None:
+            return
+        matcher = self._ignore_matchers.get(wd.id) or IgnoreMatcher(wd)
+        if matcher.should_ignore(p):
+            return
+        try:
+            size = p.stat().st_size
+        except OSError:
+            return
+        max_bytes = self._cfg.max_file_size_mb * 1024 * 1024
+        if size > max_bytes:
+            logger.warning("watcher: file too large (%d bytes), skipping: %s", size, path)
+            return
+        mtime_ns = p.stat().st_mtime_ns
+        materialize = detect_materialize(p, self._cfg)
+        if materialize is None:
+            return
+        indexer = self._app.indexer()
+        existing = self._sqlite.get_doc_by_watched_path(str(p))
+        if existing:
+            if existing.mtime_ns == mtime_ns:
+                return
+            if not self._sqlite.claim_for_reindex(existing.id):
+                return
+            await indexer.reindex_watched(existing.id, p, materialize, mtime_ns)
+        else:
+            doc_id = f"doc_{_uuid.uuid4().hex[:12]}"
+            await indexer.index_watched_new(doc_id, p, wd, materialize, mtime_ns)
+
+    async def _handle_delete(self, path: str) -> None:
+        doc = self._sqlite.get_doc_by_watched_path(path)
+        if doc is None:
+            return
+        await self._app.delete_doc(doc.id)
+
+    async def _handle_rename(self, src: str, dest: str | None) -> None:
+        if dest is None:
+            await self._handle_delete(src)
+            return
+        doc = self._sqlite.get_doc_by_watched_path(src)
+        if doc is None:
+            await self._handle_upsert(dest)
+            return
+        new_wd = self._lookup_wd_for_path(Path(dest))
+        if new_wd is None:
+            await self._app.delete_doc(doc.id)
+            return
+        matcher = self._ignore_matchers.get(new_wd.id) or IgnoreMatcher(new_wd)
+        if matcher.should_ignore(Path(dest)):
+            await self._app.delete_doc(doc.id)
+            return
+        self._sqlite.update_watched_path(doc.id, dest)
 
     async def _reconcile_dir(self, wd) -> None:
         # Filled by Task 15.

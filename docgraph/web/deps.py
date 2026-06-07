@@ -23,6 +23,7 @@ class AppState:
     embedder: EmbeddingProvider
     fts: Optional[FtsStore] = field(default=None)
     reranker: Optional["Reranker"] = field(default=None)
+    _indexer: Optional[Indexer] = field(default=None, repr=False)
 
     @classmethod
     def create(cls, cfg: Config) -> "AppState":
@@ -41,17 +42,19 @@ class AppState:
         )
 
     def indexer(self) -> Indexer:
-        from docgraph.ingest.tokenizer import get_token_counter
+        if self._indexer is None:
+            from docgraph.ingest.tokenizer import get_token_counter
 
-        return Indexer(
-            self.cfg,
-            self.sqlite,
-            self.files,
-            self.chroma,
-            self.embedder,
-            fts=self.fts,
-            counter=get_token_counter(self.cfg),
-        )
+            self._indexer = Indexer(
+                self.cfg,
+                self.sqlite,
+                self.files,
+                self.chroma,
+                self.embedder,
+                fts=self.fts,
+                counter=get_token_counter(self.cfg),
+            )
+        return self._indexer
 
     def search_service(self) -> "SearchService":
         from docgraph.mcp.search import SearchService  # deferred to avoid circular import
@@ -59,3 +62,18 @@ class AppState:
             self.cfg, self.sqlite, self.chroma, self.embedder,
             fts=self.fts, reranker=self.reranker,
         )
+
+    async def delete_doc(self, doc_id: str) -> None:
+        """Temporary stub — replaced with full refactor in Task 14."""
+        doc = self.sqlite.get_document(doc_id)
+        if doc is None:
+            return
+        self.chroma.delete_by_doc_id(doc_id)
+        fts = getattr(self, "fts", None)
+        if fts is not None:
+            try:
+                fts.delete_by_doc_id(doc_id)
+            except Exception:
+                pass
+        self.files.delete_doc_files(doc_id)
+        self.sqlite.delete_document(doc_id)
