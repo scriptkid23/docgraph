@@ -123,19 +123,23 @@ class SQLiteStore:
                 """INSERT INTO documents
                    (id, filename, folder, tags, status, chunk_count, progress_pct,
                     progress_phase, error_message, original_path, markdown_path,
-                    source_type, source_url)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    source_type, source_url, watched_path, materialize, mtime_ns)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     doc.id, doc.filename, doc.folder, json.dumps(doc.tags),
                     doc.status.value, doc.chunk_count, doc.progress_pct,
                     doc.progress_phase, doc.error_message,
                     doc.original_path, doc.markdown_path,
                     doc.source_type.value, doc.source_url,
+                    doc.watched_path,
+                    int(doc.materialize) if doc.materialize is not None else None,
+                    doc.mtime_ns,
                 ),
             )
 
     def _row_to_doc(self, row: sqlite3.Row) -> DocumentRecord:
         keys = row.keys()
+        raw_materialize = row["materialize"] if "materialize" in keys else None
         return DocumentRecord(
             id=row["id"],
             filename=row["filename"],
@@ -150,6 +154,9 @@ class SQLiteStore:
             markdown_path=row["markdown_path"],
             source_type=SourceType(row["source_type"]) if "source_type" in keys else SourceType.FILE,
             source_url=row["source_url"] if "source_url" in keys else "",
+            watched_path=row["watched_path"] if "watched_path" in keys else None,
+            materialize=bool(raw_materialize) if raw_materialize is not None else None,
+            mtime_ns=row["mtime_ns"] if "mtime_ns" in keys else None,
         )
 
     def get_document(self, doc_id: str) -> Optional[DocumentRecord]:
@@ -323,4 +330,41 @@ class SQLiteStore:
                 "INSERT INTO watcher_state (key, value) VALUES (?, ?) "
                 "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
                 (key, value),
+            )
+
+    # ------------------------------------------------------------------
+    # watched-doc queries
+    # ------------------------------------------------------------------
+
+    def get_doc_by_watched_path(self, path: str) -> DocumentRecord | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM documents WHERE watched_path = ?", (path,)
+            ).fetchone()
+        if row is None:
+            return None
+        return self._row_to_doc(row)
+
+    def list_watched_docs(self, prefix: str) -> list[DocumentRecord]:
+        like = prefix.rstrip("/") + "/%"
+        exact = prefix.rstrip("/")
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM documents WHERE watched_path = ? OR watched_path LIKE ?",
+                (exact, like),
+            ).fetchall()
+        return [self._row_to_doc(r) for r in rows]
+
+    def update_watched_path(self, doc_id: str, new_path: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE documents SET watched_path = ? WHERE id = ?",
+                (new_path, doc_id),
+            )
+
+    def update_mtime_ns(self, doc_id: str, mtime_ns: int) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE documents SET mtime_ns = ? WHERE id = ?",
+                (mtime_ns, doc_id),
             )

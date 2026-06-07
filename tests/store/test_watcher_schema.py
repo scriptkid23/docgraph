@@ -4,7 +4,7 @@ from pathlib import Path
 import pytest
 
 from docgraph.config import Config
-from docgraph.models import WatchedDirRecord
+from docgraph.models import DocumentRecord, DocumentStatus, SourceType, WatchedDirRecord
 from docgraph.store.sqlite import SQLiteStore
 
 
@@ -140,3 +140,51 @@ def test_watcher_state_get_set(cfg: Config):
     assert store.get_watcher_state("enabled") == "true"
     store.set_watcher_state("enabled", "false")  # upsert
     assert store.get_watcher_state("enabled") == "false"
+
+
+def _make_watched_doc(store: SQLiteStore, doc_id: str, path: str, mtime: int) -> None:
+    doc = DocumentRecord(
+        id=doc_id, filename="x.md", folder="", tags=[],
+        source_type=SourceType.WATCHED, status=DocumentStatus.READY,
+        watched_path=path, materialize=False, mtime_ns=mtime,
+    )
+    store.insert_document(doc)
+
+
+def test_get_doc_by_watched_path(cfg: Config):
+    store = SQLiteStore(cfg)
+    store.init_schema()
+    _make_watched_doc(store, "d1", "/tmp/notes/a.md", 1000)
+    got = store.get_doc_by_watched_path("/tmp/notes/a.md")
+    assert got is not None and got.id == "d1"
+    assert got.mtime_ns == 1000
+    assert store.get_doc_by_watched_path("/tmp/notes/missing.md") is None
+
+
+def test_list_watched_docs_by_prefix(cfg: Config):
+    store = SQLiteStore(cfg)
+    store.init_schema()
+    _make_watched_doc(store, "d1", "/tmp/notes/a.md", 1)
+    _make_watched_doc(store, "d2", "/tmp/notes/sub/b.md", 2)
+    _make_watched_doc(store, "d3", "/tmp/other/c.md", 3)
+    docs = store.list_watched_docs(prefix="/tmp/notes")
+    paths = sorted(d.watched_path for d in docs)
+    assert paths == ["/tmp/notes/a.md", "/tmp/notes/sub/b.md"]
+
+
+def test_update_watched_path(cfg: Config):
+    store = SQLiteStore(cfg)
+    store.init_schema()
+    _make_watched_doc(store, "d1", "/tmp/old.md", 1)
+    store.update_watched_path("d1", "/tmp/new.md")
+    assert store.get_doc_by_watched_path("/tmp/old.md") is None
+    assert store.get_doc_by_watched_path("/tmp/new.md").id == "d1"
+
+
+def test_update_mtime_ns(cfg: Config):
+    store = SQLiteStore(cfg)
+    store.init_schema()
+    _make_watched_doc(store, "d1", "/tmp/a.md", 100)
+    store.update_mtime_ns("d1", 999)
+    got = store.get_doc_by_watched_path("/tmp/a.md")
+    assert got.mtime_ns == 999
