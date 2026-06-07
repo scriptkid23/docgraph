@@ -90,3 +90,55 @@ def test_partial_unique_rejects_duplicate_non_null_watched_path(cfg: Config):
                 "VALUES ('d2', 'b', '', '[]', 'watched', 'ready', '/tmp/x.md')"
             )
         conn.commit()
+
+
+from docgraph.models import WatchedDirRecord
+
+
+def test_insert_and_list_watched_dirs(cfg: Config):
+    store = SQLiteStore(cfg)
+    store.init_schema()
+    wd = WatchedDirRecord(
+        id="wd_a",
+        path="/tmp/notes",
+        folder="notes",
+        tags=["personal"],
+        ignore_globs=["draft/*"],
+        created_at="2026-06-07T14:00:00Z",
+    )
+    store.insert_watched_dir(wd)
+    dirs = store.list_watched_dirs()
+    assert len(dirs) == 1
+    assert dirs[0].id == "wd_a"
+    assert dirs[0].tags == ["personal"]
+    assert dirs[0].ignore_globs == ["draft/*"]
+
+
+def test_get_watched_dir_by_id(cfg: Config):
+    store = SQLiteStore(cfg)
+    store.init_schema()
+    wd = WatchedDirRecord(id="wd_b", path="/tmp/x", created_at="2026-06-07T14:00:00Z")
+    store.insert_watched_dir(wd)
+    got = store.get_watched_dir("wd_b")
+    assert got is not None and got.path == "/tmp/x"
+    assert store.get_watched_dir("wd_missing") is None
+
+
+def test_delete_watched_dir(cfg: Config):
+    store = SQLiteStore(cfg)
+    store.init_schema()
+    store.insert_watched_dir(WatchedDirRecord(id="wd_c", path="/tmp/y", created_at="2026-06-07T14:00:00Z"))
+    deleted = store.delete_watched_dir("wd_c")
+    assert deleted is True
+    assert store.get_watched_dir("wd_c") is None
+    assert store.delete_watched_dir("wd_c") is False  # already gone
+
+
+def test_watcher_state_get_set(cfg: Config):
+    store = SQLiteStore(cfg)
+    store.init_schema()
+    assert store.get_watcher_state("enabled") is None
+    store.set_watcher_state("enabled", "true")
+    assert store.get_watcher_state("enabled") == "true"
+    store.set_watcher_state("enabled", "false")  # upsert
+    assert store.get_watcher_state("enabled") == "false"

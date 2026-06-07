@@ -5,7 +5,7 @@ import sqlite3
 from typing import Optional
 
 from docgraph.config import Config
-from docgraph.models import DocumentRecord, DocumentStatus, SourceType
+from docgraph.models import DocumentRecord, DocumentStatus, SourceType, WatchedDirRecord
 
 
 class SQLiteStore:
@@ -257,3 +257,73 @@ class SQLiteStore:
     def delete_document(self, doc_id: str) -> None:
         with self._connect() as conn:
             conn.execute("DELETE FROM documents WHERE id = ?", (doc_id,))
+
+    # ------------------------------------------------------------------
+    # watched_dirs CRUD
+    # ------------------------------------------------------------------
+
+    def insert_watched_dir(self, wd: WatchedDirRecord) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO watched_dirs (id, path, folder, tags, ignore_globs, created_at) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (wd.id, wd.path, wd.folder, json.dumps(wd.tags),
+                 json.dumps(wd.ignore_globs), wd.created_at),
+            )
+            conn.commit()
+
+    def list_watched_dirs(self) -> list[WatchedDirRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT id, path, folder, tags, ignore_globs, created_at "
+                "FROM watched_dirs ORDER BY created_at"
+            ).fetchall()
+        return [
+            WatchedDirRecord(
+                id=r[0], path=r[1], folder=r[2],
+                tags=json.loads(r[3]), ignore_globs=json.loads(r[4]),
+                created_at=r[5],
+            )
+            for r in rows
+        ]
+
+    def get_watched_dir(self, wd_id: str) -> WatchedDirRecord | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT id, path, folder, tags, ignore_globs, created_at "
+                "FROM watched_dirs WHERE id = ?",
+                (wd_id,),
+            ).fetchone()
+        if row is None:
+            return None
+        return WatchedDirRecord(
+            id=row[0], path=row[1], folder=row[2],
+            tags=json.loads(row[3]), ignore_globs=json.loads(row[4]),
+            created_at=row[5],
+        )
+
+    def delete_watched_dir(self, wd_id: str) -> bool:
+        with self._connect() as conn:
+            cur = conn.execute("DELETE FROM watched_dirs WHERE id = ?", (wd_id,))
+            conn.commit()
+            return cur.rowcount > 0
+
+    # ------------------------------------------------------------------
+    # watcher_state CRUD
+    # ------------------------------------------------------------------
+
+    def get_watcher_state(self, key: str) -> str | None:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT value FROM watcher_state WHERE key = ?", (key,)
+            ).fetchone()
+        return row[0] if row else None
+
+    def set_watcher_state(self, key: str, value: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "INSERT INTO watcher_state (key, value) VALUES (?, ?) "
+                "ON CONFLICT(key) DO UPDATE SET value = excluded.value",
+                (key, value),
+            )
+            conn.commit()
