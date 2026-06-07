@@ -4,7 +4,17 @@ import asyncio
 import logging
 from datetime import datetime, timezone
 
-from docgraph.watch.types import WatcherState, WatcherStats
+from watchdog.observers import Observer
+
+from docgraph.watch.handler import DocgraphEventHandler
+from docgraph.watch.types import WatcherState, WatcherStats, WatchEvent
+
+_ACTION_MAP = {
+    "created": "UPSERT",
+    "modified": "UPSERT",
+    "deleted": "DELETE",
+    "moved": "RENAME",
+}
 
 logger = logging.getLogger(__name__)
 
@@ -111,8 +121,50 @@ class WatcherManager:
 
     # ---- placeholders filled in by later tasks ----
     async def _start_observer(self) -> None:
-        # Filled by Task 11.
-        pass
+        self._observer = Observer()
+        handler = DocgraphEventHandler(self, self._loop)
+        for wd in self._sqlite.list_watched_dirs():
+            try:
+                self._observer.schedule(handler, wd.path, recursive=True)
+            except Exception as exc:
+                logger.warning("failed to schedule watch for %s: %s", wd.path, exc)
+        self._observer.start()
+
+    def _on_raw_event(self, event_type: str, src_path: str, dest_path: str | None) -> None:
+        """Called on the asyncio loop via call_soon_threadsafe."""
+        self.stats.events_received += 1
+        action = _ACTION_MAP.get(event_type)
+        if action is None:
+            return
+        self._enqueue_debounced(action, src_path, dest_path)
+
+    def _enqueue_debounced(self, action: str, src_path: str, dest_path: str | None) -> None:
+        key = src_path
+        if existing := self._debounce_tasks.get(key):
+            existing.cancel()
+            self.stats.events_debounced += 1
+        handle = self._loop.call_later(
+            self._cfg.watch_debounce_sec,
+            self._flush_debounce, action, src_path, dest_path,
+        )
+        self._debounce_tasks[key] = handle
+
+    def _flush_debounce(self, action: str, src_path: str, dest_path: str | None) -> None:
+        self._debounce_tasks.pop(src_path, None)
+        event = WatchEvent(action=action, src_path=src_path, dest_path=dest_path)
+        self._enqueue_direct(event)
+
+    def _enqueue_direct(self, event: WatchEvent) -> None:
+        if not self._queues:
+            self.stats.events_dropped_queue_full += 1
+            return
+        idx = hash(event.src_path) % len(self._queues)
+        try:
+            self._queues[idx].put_nowait(event)
+            self.stats.events_processed += 1
+        except asyncio.QueueFull:
+            self.stats.events_dropped_queue_full += 1
+            logger.warning("watcher queue full; dropping event: %s %s", event.action, event.src_path)
 
     async def _start_workers(self) -> None:
         # Filled by Task 13.
