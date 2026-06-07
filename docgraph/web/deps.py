@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from dataclasses import dataclass, field
 from typing import TYPE_CHECKING, Optional
 
@@ -12,6 +13,8 @@ from docgraph.store import ChromaStore, FileStore, FtsStore, SQLiteStore
 if TYPE_CHECKING:
     from docgraph.embed.rerank import Reranker
     from docgraph.mcp.search import SearchService
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -63,17 +66,17 @@ class AppState:
             fts=self.fts, reranker=self.reranker,
         )
 
-    async def delete_doc(self, doc_id: str) -> None:
-        """Temporary stub — replaced with full refactor in Task 14."""
+    async def delete_doc(self, doc_id: str) -> bool:
+        """Single source of truth for doc deletion. Returns True if deleted, False if not found."""
         doc = self.sqlite.get_document(doc_id)
         if doc is None:
-            return
+            return False
         self.chroma.delete_by_doc_id(doc_id)
-        fts = getattr(self, "fts", None)
-        if fts is not None:
+        if self.fts is not None:
             try:
-                fts.delete_by_doc_id(doc_id)
-            except Exception:
-                pass
+                self.fts.delete_by_doc_id(doc_id)
+            except Exception as exc:
+                logger.warning("FTS5 delete failed for doc_id=%s on AppState.delete_doc: %s", doc_id, exc)
         self.files.delete_doc_files(doc_id)
         self.sqlite.delete_document(doc_id)
+        return True
