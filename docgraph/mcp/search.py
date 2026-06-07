@@ -284,5 +284,6 @@ class SearchService:
             chunk_index=h.chunk_index,
             score=score,
             rrf_score=h.rrf_score,
+            rerank_score=h.rerank_score,
             source_page=h.source_page,
         )
