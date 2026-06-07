@@ -381,12 +381,25 @@ class Indexer:
         """Crawl and index multiple URLs reusing one browser session."""
         if not items:
             return
-        async with UrlCrawler(self._cfg) as crawler:
-            for doc_id, url in items:
+        try:
+            async with UrlCrawler(self._cfg) as crawler:
+                for doc_id, url in items:
+                    try:
+                        await self._index_url_with_crawler(doc_id, url, crawler)
+                    except Exception:
+                        logger.exception("URL index failed for doc_id=%s url=%s", doc_id, url)
+        except Exception as exc:
+            # Crawler __aenter__ itself failed (e.g. browser not installed) — no
+            # per-URL handler ran, so docs would stay PROCESSING forever. Mark
+            # every queued doc ERROR with the launch failure so the UI surfaces it.
+            logger.exception("URL crawler failed to start; marking %d docs ERROR", len(items))
+            for doc_id, _url in items:
                 try:
-                    await self._index_url_with_crawler(doc_id, url, crawler)
+                    self._sqlite.update_status(
+                        doc_id, DocumentStatus.ERROR, error_message=str(exc),
+                    )
                 except Exception:
-                    logger.exception("URL index failed for doc_id=%s url=%s", doc_id, url)
+                    logger.exception("failed to mark doc %s as ERROR", doc_id)
 
     async def reindex_document(self, doc_id: str) -> None:
         doc = self._sqlite.get_document(doc_id)
