@@ -202,7 +202,7 @@ Then in Cursor chat:
 | `DOCGRAPH_RRF_K` | `60` | Reciprocal Rank Fusion constant |
 | `DOCGRAPH_RERANK_ENABLED` | `true` | Enable cross-encoder reranker (`poetry install -E rerank`) |
 | `DOCGRAPH_RERANK_MODEL` | `bge-reranker-v2-m3` | Reranker model (fastembed) |
-| `DOCGRAPH_RERANK_TOP_N` | `15` | Number of candidates passed to the reranker |
+| `DOCGRAPH_RERANK_TOP_N` | `4` | Number of candidates passed to the reranker. Each candidate ≈ 700ms cross-encoder forward pass on CPU — see `benchmarks/README.md` |
 | `DOCGRAPH_RERANK_TIMEOUT_SEC` | `3.0` | Per-call rerank timeout (falls back to RRF order on timeout) |
 | `DOCGRAPH_RERANK_PREWARM` | `true` | Warm up reranker model at server startup |
 | `DOCGRAPH_RERANK_SCORE_GAP_RATIO` | `0.5` | Skip rerank when top-1 RRF dominates by this ratio |
