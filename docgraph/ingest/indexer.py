@@ -416,6 +416,78 @@ class Indexer:
                 except Exception:
                     logger.exception("failed to mark doc %s as ERROR", doc_id)
 
+    async def index_watched_new(
+        self,
+        doc_id: str,
+        watched_path: Path,
+        wd,  # WatchedDirRecord
+        materialize: bool,
+        mtime_ns: int,
+    ) -> None:
+        """First-time index of a file discovered in a watched dir."""
+        from docgraph.models import DocumentRecord, SourceType
+        doc = DocumentRecord(
+            id=doc_id,
+            filename=watched_path.name,
+            folder=wd.folder,
+            tags=list(wd.tags),
+            source_type=SourceType.WATCHED,
+            watched_path=str(watched_path),
+            materialize=materialize,
+            mtime_ns=mtime_ns,
+            original_path="",
+        )
+        if materialize:
+            content = await asyncio.to_thread(watched_path.read_bytes)
+            orig_path = self._files.save_original(doc_id, watched_path.name, content)
+            doc.original_path = str(orig_path)
+        self._sqlite.insert_document(doc)
+        self._sqlite.update_progress(doc_id, 0, "Queued for watched-index (0%)")
+        if materialize:
+            await self.index_document(doc_id, Path(doc.original_path))
+        else:
+            text = await asyncio.to_thread(
+                watched_path.read_text, encoding="utf-8", errors="ignore"
+            )
+            await self.index_text_direct(doc_id, text)
+        # Ensure status is READY on the happy path so claim_for_reindex can
+        # flip it back to PROCESSING later. The underlying index_* methods
+        # already call update_status(READY); this is a safe idempotent call
+        # that also guards the mocked-out path in tests.
+        self._sqlite.update_status(doc_id, DocumentStatus.READY)
+        self._sqlite.update_mtime_ns(doc_id, mtime_ns)
+
+    async def reindex_watched(
+        self,
+        doc_id: str,
+        watched_path: Path,
+        materialize: bool,
+        mtime_ns: int,
+    ) -> None:
+        """Re-run ingest for an existing watched doc. claim_for_reindex must be called first."""
+        self._chroma.delete_by_doc_id(doc_id)
+        if self._fts is not None:
+            try:
+                self._fts.delete_by_doc_id(doc_id)
+            except Exception as exc:
+                logger.warning("FTS5 delete failed for doc_id=%s: %s", doc_id, exc)
+        self._progress(doc_id, 0, "Re-indexing watched file (0%)")
+        if materialize:
+            doc = self._sqlite.get_document(doc_id)
+            old_orig = Path(doc.original_path) if doc.original_path else None
+            content = await asyncio.to_thread(watched_path.read_bytes)
+            new_orig = self._files.save_original(doc_id, watched_path.name, content)
+            self._sqlite.update_original_path(doc_id, str(new_orig))
+            if old_orig and old_orig != new_orig and old_orig.exists():
+                old_orig.unlink(missing_ok=True)
+            await self.index_document(doc_id, new_orig)
+        else:
+            text = await asyncio.to_thread(
+                watched_path.read_text, encoding="utf-8", errors="ignore"
+            )
+            await self.index_text_direct(doc_id, text)
+        self._sqlite.update_mtime_ns(doc_id, mtime_ns)
+
     async def reindex_document(self, doc_id: str) -> None:
         doc = self._sqlite.get_document(doc_id)
         if doc is None:

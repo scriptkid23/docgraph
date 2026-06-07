@@ -150,7 +150,7 @@ class SQLiteStore:
             progress_pct=int(row["progress_pct"]) if "progress_pct" in keys else 0,
             progress_phase=row["progress_phase"] if "progress_phase" in keys else "",
             error_message=row["error_message"],
-            original_path=row["original_path"],
+            original_path=row["original_path"] or None,
             markdown_path=row["markdown_path"],
             source_type=SourceType(row["source_type"]) if "source_type" in keys else SourceType.FILE,
             source_url=row["source_url"] if "source_url" in keys else "",
@@ -367,4 +367,11 @@ class SQLiteStore:
             conn.execute(
                 "UPDATE documents SET mtime_ns = ? WHERE id = ?",
                 (mtime_ns, doc_id),
+            )
+
+    def update_original_path(self, doc_id: str, original_path: str) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE documents SET original_path = ? WHERE id = ?",
+                (original_path, doc_id),
             )
