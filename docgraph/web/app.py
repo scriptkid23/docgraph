@@ -19,6 +19,47 @@ STATIC_DIR = Path(__file__).parent / "static"
 logger = logging.getLogger(__name__)
 
 
+class _WatchDirBody(BaseModel):
+    path: str
+    folder: str = ""
+    tags: str = ""
+    ignore_globs: list[str] = []
+
+
+def _check_watched_path(cfg, path_str: str, existing_dirs: list) -> Path:
+    try:
+        p = Path(path_str).resolve(strict=True)
+    except FileNotFoundError:
+        raise HTTPException(status_code=400, detail=f"path does not exist: {path_str}")
+    if not p.is_dir():
+        raise HTTPException(status_code=400, detail=f"path is not a directory: {path_str}")
+    # Inside data_dir?
+    data_dir = cfg.data_dir.resolve()
+    try:
+        p.relative_to(data_dir)
+        raise HTTPException(status_code=400, detail="path inside docgraph data_dir, would loop")
+    except ValueError:
+        pass
+    # Reserved roots.
+    forbidden = {Path("/"), Path("/etc"), Path("/System"), Path("/Users"), Path.home()}
+    if p in forbidden:
+        raise HTTPException(status_code=400, detail=f"refusing to watch system path: {p}")
+    # Overlap with existing watched dirs (parent or child relationship).
+    for wd in existing_dirs:
+        wd_path = Path(wd.path).resolve()
+        try:
+            p.relative_to(wd_path)
+            raise HTTPException(status_code=409, detail=f"path overlaps with watched dir {wd.id}")
+        except ValueError:
+            pass
+        try:
+            wd_path.relative_to(p)
+            raise HTTPException(status_code=409, detail=f"path overlaps with watched dir {wd.id}")
+        except ValueError:
+            pass
+    return p
+
+
 def _doc_to_json(doc: DocumentRecord) -> dict:
     return {
         "id": doc.id,
@@ -352,6 +393,90 @@ def create_app(
         except WatcherTransitionInProgress as exc:
             raise HTTPException(status_code=409, detail=str(exc))
         return result
+
+    @app.get("/api/watch/dirs")
+    async def watch_list_dirs(request: Request):
+        from datetime import datetime, timezone as _tz
+        st: AppState = request.app.state.docgraph
+        dirs = st.sqlite.list_watched_dirs()
+        out = []
+        for wd in dirs:
+            docs = st.sqlite.list_watched_docs(prefix=wd.path)
+            out.append({
+                "id": wd.id,
+                "path": wd.path,
+                "folder": wd.folder,
+                "tags": wd.tags,
+                "ignore_globs": wd.ignore_globs,
+                "created_at": wd.created_at,
+                "doc_count": len(docs),
+            })
+        return {"dirs": out}
+
+    @app.post("/api/watch/dirs", status_code=201)
+    async def watch_add_dir(request: Request, body: _WatchDirBody):
+        from datetime import datetime, timezone as _tz
+        import uuid as _uuid_mod
+        from docgraph.models import WatchedDirRecord
+        st: AppState = request.app.state.docgraph
+        existing = st.sqlite.list_watched_dirs()
+        p = _check_watched_path(st.cfg, body.path, existing)
+        tags = [t.strip() for t in body.tags.split(",") if t.strip()]
+        wd_id = f"wd_{_uuid_mod.uuid4().hex[:12]}"
+        wd = WatchedDirRecord(
+            id=wd_id, path=str(p), folder=body.folder, tags=tags,
+            ignore_globs=body.ignore_globs,
+            created_at=datetime.now(_tz.utc).isoformat(),
+        )
+        st.sqlite.insert_watched_dir(wd)
+        scheduled = False
+        if st.watcher.state.value == "enabled" and st.watcher._observer is not None:
+            try:
+                from docgraph.watch.handler import DocgraphEventHandler
+                from docgraph.watch.ignore import IgnoreMatcher
+                st.watcher._ignore_matchers[wd_id] = IgnoreMatcher(wd)
+                st.watcher._observer.schedule(
+                    DocgraphEventHandler(st.watcher, st.watcher._loop),
+                    wd.path, recursive=True,
+                )
+                asyncio.create_task(st.watcher._reconcile_dir(wd))
+                scheduled = True
+            except Exception:
+                logger.exception("failed to schedule new watched dir")
+        return {"id": wd_id, "path": wd.path, "scheduled": scheduled}
+
+    @app.delete("/api/watch/dirs/{wd_id}")
+    async def watch_remove_dir(request: Request, wd_id: str, delete_docs: bool = False):
+        st: AppState = request.app.state.docgraph
+        wd = st.sqlite.get_watched_dir(wd_id)
+        if wd is None:
+            raise HTTPException(status_code=404, detail="watched dir not found")
+        deleted = 0
+        if delete_docs:
+            for doc in st.sqlite.list_watched_docs(prefix=wd.path):
+                if await st.delete_doc(doc.id):
+                    deleted += 1
+        st.sqlite.delete_watched_dir(wd_id)
+        if st.watcher.state.value == "enabled" and st.watcher._observer is not None:
+            try:
+                st.watcher._observer.unschedule_all()
+                from docgraph.watch.handler import DocgraphEventHandler
+                handler = DocgraphEventHandler(st.watcher, st.watcher._loop)
+                for remaining in st.sqlite.list_watched_dirs():
+                    st.watcher._observer.schedule(handler, remaining.path, recursive=True)
+            except Exception:
+                logger.exception("failed to reschedule observer after dir removal")
+        return {"id": wd_id, "deleted_docs": deleted, "unwatched": True}
+
+    @app.post("/api/watch/reconcile")
+    async def watch_reconcile(request: Request):
+        st: AppState = request.app.state.docgraph
+        if st.watcher.state.value != "enabled":
+            raise HTTPException(status_code=409, detail="watcher must be enabled")
+        dirs = st.sqlite.list_watched_dirs()
+        for wd in dirs:
+            asyncio.create_task(st.watcher._reconcile_dir(wd))
+        return {"reconcile_started": True, "dirs": len(dirs)}
 
     if mount_mcp:
         from docgraph.mcp.server import create_mcp_server
