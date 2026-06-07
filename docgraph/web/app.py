@@ -297,6 +297,13 @@ def create_app(
         doc = st.sqlite.get_document(doc_id)
         if doc is None:
             raise HTTPException(status_code=404, detail="not found")
+        if not st.sqlite.claim_for_reindex(doc_id):
+            # Already PROCESSING — a prior upload or reindex is still running.
+            # Spawning another BG task would race the FTS upsert path (plain
+            # INSERT, no unique constraint on chunk_id) and pile up duplicates.
+            raise HTTPException(
+                status_code=409, detail="document is already being processed"
+            )
         background_tasks.add_task(st.indexer().reindex_document, doc_id)
         return {"doc_id": doc_id, "status": "processing"}
 

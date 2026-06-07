@@ -145,6 +145,25 @@ class SQLiteStore:
             docs = [d for d in docs if tag in d.tags]
         return docs
 
+    def claim_for_reindex(self, doc_id: str) -> bool:
+        """Atomically flip status to PROCESSING iff not already PROCESSING.
+
+        Returns True if this caller claimed the slot. False means another
+        indexing pass is already in flight — caller must NOT spawn a second
+        BG task or duplicate FTS rows pile up (fts upsert is plain INSERT).
+        """
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE documents SET status=?, progress_pct=0, progress_phase='' "
+                "WHERE id=? AND status<>?",
+                (
+                    DocumentStatus.PROCESSING.value,
+                    doc_id,
+                    DocumentStatus.PROCESSING.value,
+                ),
+            )
+            return cur.rowcount == 1
+
     def update_progress(self, doc_id: str, pct: int, phase: str = "") -> None:
         pct = max(0, min(100, int(pct)))
         with self._connect() as conn:
