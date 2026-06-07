@@ -208,6 +208,73 @@ Then in Cursor chat:
 | `DOCGRAPH_RERANK_SCORE_GAP_RATIO` | `0.5` | Skip rerank when top-1 RRF dominates by this ratio |
 | `DOCGRAPH_RERANK_MIN_FLOOR` | `0.015` | Skip rerank when top-1 RRF score is below this floor |
 
+## File watcher (roadmap 3.1)
+
+Auto-indexes files in user-configured directories. Runtime-toggleable via HTTP API or CLI — no restart needed.
+
+### Quick start
+
+```bash
+# Add a watched directory (server must be running)
+docgraph watch add ~/Notes --folder notes --tags personal
+
+# Turn the watcher on
+docgraph watch enable
+
+# Check what it's doing
+docgraph watch status
+
+# Turn it off (paths persist; re-enable later picks them up)
+docgraph watch disable
+```
+
+### How it works
+
+- **Text files** (`.md`, `.py`, `.rs`, `.json`, etc.) are referenced in place — no duplicate copy in `data_dir`.
+- **Binary files** (`.pdf`, `.docx`, `.pptx`, `.xlsx`, …) are copied into `data_dir/files/originals/` as a snapshot at index time; the converted markdown is cached and regenerated only when the source file's mtime changes.
+- **Unknown extensions** are skipped silently. Extend via `DOCGRAPH_WATCH_EXTRA_TEXT_EXTS` / `DOCGRAPH_WATCH_EXTRA_BINARY_EXTS`.
+
+### Ignore patterns
+
+Three layers compose:
+
+1. **Hardcoded defaults** — `.git`, `node_modules`, `__pycache__`, `.venv`, `.DS_Store`, `*.pyc`, `*.swp`, `*~`, etc.
+2. **`.docgraphignore`** at each watched-dir root — gitignore syntax (minus negation). Reloaded on its own mtime.
+3. **Per-dir `ignore_globs`** from the add-dir API/CLI.
+
+### Watched vs uploaded
+
+A file at the same path can exist as **two separate docs** if you both upload it via `POST /api/documents` and watch its directory. They have independent lifecycles. Watcher docs use `source_type=watched`; upload docs use `source_type=file`.
+
+### Config knobs
+
+| Env var | YAML key | Default | Purpose |
+|---|---|---:|---|
+| `DOCGRAPH_WATCH_DEBOUNCE_SEC` | `watch.debounce_sec` | `2.0` | Per-path debounce window before enqueueing |
+| `DOCGRAPH_WATCH_QUEUE_CAPACITY` | `watch.queue_capacity` | `500` | Aggregate cap across per-worker queues |
+| `DOCGRAPH_WATCH_WORKERS` | `watch.workers` | `4` | Number of async ingest workers |
+| `DOCGRAPH_WATCH_RECOVERY_INTERVAL_SEC` | `watch.recovery_interval_sec` | `600` | Periodic reconcile (fsevents-drop backstop) |
+| `DOCGRAPH_WATCH_EXTRA_TEXT_EXTS` | `watch.extra_text_exts` | `[]` | Extra extensions to treat as native text |
+| `DOCGRAPH_WATCH_EXTRA_BINARY_EXTS` | `watch.extra_binary_exts` | `[]` | Extra extensions to convert as binary |
+
+### HTTP API
+
+| Method | Path | Purpose |
+|---|---|---|
+| `GET`  | `/api/watch/status` | Snapshot of watcher state, stats, queue depth |
+| `POST` | `/api/watch/enable` | Start observer + workers, run reconcile |
+| `POST` | `/api/watch/disable` | Stop observer, cancel workers, drain queue |
+| `GET`  | `/api/watch/dirs` | List watched dirs (with per-dir doc count) |
+| `POST` | `/api/watch/dirs` | Add a dir: body `{path, folder, tags, ignore_globs}` |
+| `DELETE` | `/api/watch/dirs/{wd_id}` | Remove a dir (optional `?delete_docs=true`) |
+| `POST` | `/api/watch/reconcile` | Manual reconcile across all dirs (watcher must be enabled) |
+
+### Known limitations
+
+- Symlinks are not followed (would risk indexing loops). Documented.
+- macOS fsevents can drop events under burst — the 10-minute recovery reconcile backstops this.
+- Watcher does not auth its endpoints — they inherit whatever auth ships when roadmap 3.4 lands.
+
 Re-index after changing chunk settings:
 
 ```bash
