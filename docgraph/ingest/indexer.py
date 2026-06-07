@@ -450,11 +450,9 @@ class Indexer:
                 watched_path.read_text, encoding="utf-8", errors="ignore"
             )
             await self.index_text_direct(doc_id, text)
-        # Ensure status is READY on the happy path so claim_for_reindex can
-        # flip it back to PROCESSING later. The underlying index_* methods
-        # already call update_status(READY); this is a safe idempotent call
-        # that also guards the mocked-out path in tests.
-        self._sqlite.update_status(doc_id, DocumentStatus.READY)
+        # The underlying index_* methods set status READY with proper
+        # chunk_count + markdown_path. Do NOT re-call update_status here —
+        # the default kwargs would zero those fields (see code review #9).
         self._sqlite.update_mtime_ns(doc_id, mtime_ns)
 
     async def reindex_watched(
@@ -503,7 +501,13 @@ class Indexer:
                 logger.warning("FTS5 delete failed for doc_id=%s: %s", doc_id, exc)
         self._sqlite.update_status(doc_id, DocumentStatus.PROCESSING)
         self._progress(doc_id, 0, "Starting re-index (0%)")
-        if doc.source_type == SourceType.URL and doc.source_url:
+        if doc.source_type == SourceType.WATCHED and doc.watched_path:
+            wp = Path(doc.watched_path)
+            if not wp.exists():
+                raise ValueError(f"watched file gone: {doc.watched_path}")
+            mtime_ns = wp.stat().st_mtime_ns
+            await self.reindex_watched(doc_id, wp, bool(doc.materialize), mtime_ns)
+        elif doc.source_type == SourceType.URL and doc.source_url:
             await self.index_url(doc_id, doc.source_url)
         elif doc.original_path:
             await self.index_document(doc_id, Path(doc.original_path))

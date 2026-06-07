@@ -62,7 +62,14 @@ async def test_reindex_watched_updates_mtime(state: AppState, wd: WatchedDirReco
     p.write_text("v1")
     mtime1 = p.stat().st_mtime_ns
     indexer = state.indexer()
-    indexer.index_text_direct = AsyncMock()  # type: ignore[method-assign]
+    # Stub index_text_direct as a no-op that flips status to READY (real path
+    # does this via index_markdown). Lets claim_for_reindex succeed below.
+    from docgraph.models import DocumentStatus
+
+    async def _stub(doc_id, text):
+        state.sqlite.update_status(doc_id, DocumentStatus.READY, chunk_count=1)
+
+    indexer.index_text_direct = _stub  # type: ignore[method-assign]
     await indexer.index_watched_new("d_r", p, wd, False, mtime1)
     p.write_text("v2 with more body")
     import os, time

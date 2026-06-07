@@ -435,6 +435,7 @@ def create_app(
                 from docgraph.watch.handler import DocgraphEventHandler
                 from docgraph.watch.ignore import IgnoreMatcher
                 st.watcher._ignore_matchers[wd_id] = IgnoreMatcher(wd)
+                st.watcher._watched_dirs_cache[wd_id] = wd
                 st.watcher._observer.schedule(
                     DocgraphEventHandler(st.watcher, st.watcher._loop),
                     wd.path, recursive=True,
@@ -457,6 +458,9 @@ def create_app(
                 if await st.delete_doc(doc.id):
                     deleted += 1
         st.sqlite.delete_watched_dir(wd_id)
+        # Drop cache entries so workers stop matching events for this wd.
+        st.watcher._ignore_matchers.pop(wd_id, None)
+        st.watcher._watched_dirs_cache.pop(wd_id, None)
         if st.watcher.state.value == "enabled" and st.watcher._observer is not None:
             try:
                 st.watcher._observer.unschedule_all()

@@ -49,6 +49,9 @@ class WatcherManager:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._last_enabled_at: str | None = None
         self._recovery_task: asyncio.Task | None = None
+        # Caches populated at enable-time; kept in sync by add/remove dir routes.
+        self._ignore_matchers: dict = {}
+        self._watched_dirs_cache: dict = {}
         # Restore persisted state.
         persisted = self._sqlite.get_watcher_state("enabled")
         if persisted == "true":
@@ -177,10 +180,13 @@ class WatcherManager:
             asyncio.create_task(self._worker_loop(i))
             for i in range(self._cfg.watch_workers)
         ]
-        # Cache ignore matchers per watched dir (refresh each enable).
+        # Cache watched dirs + ignore matchers (refresh each enable; routes
+        # keep these in sync as dirs are added/removed at runtime).
         self._ignore_matchers: dict[str, IgnoreMatcher] = {}
+        self._watched_dirs_cache: dict[str, "WatchedDirRecord"] = {}
         for wd in self._sqlite.list_watched_dirs():
             self._ignore_matchers[wd.id] = IgnoreMatcher(wd)
+            self._watched_dirs_cache[wd.id] = wd
 
     async def _worker_loop(self, worker_id: int) -> None:
         queue = self._queues[worker_id]
@@ -204,7 +210,9 @@ class WatcherManager:
                 queue.task_done()
 
     def _lookup_wd_for_path(self, p: Path):
-        for wd in self._sqlite.list_watched_dirs():
+        # Use cache populated at enable-time + maintained by add/remove routes
+        # — avoid a DB round-trip per event.
+        for wd in self._watched_dirs_cache.values():
             try:
                 p.relative_to(wd.path)
                 return wd
@@ -222,15 +230,16 @@ class WatcherManager:
         matcher = self._ignore_matchers.get(wd.id) or IgnoreMatcher(wd)
         if matcher.should_ignore(p):
             return
+        # Single stat() call to avoid TOCTOU between size + mtime reads.
         try:
-            size = p.stat().st_size
+            st = p.stat()
         except OSError:
             return
         max_bytes = self._cfg.max_file_size_mb * 1024 * 1024
-        if size > max_bytes:
-            logger.warning("watcher: file too large (%d bytes), skipping: %s", size, path)
+        if st.st_size > max_bytes:
+            logger.warning("watcher: file too large (%d bytes), skipping: %s", st.st_size, path)
             return
-        mtime_ns = p.stat().st_mtime_ns
+        mtime_ns = st.st_mtime_ns
         materialize = detect_materialize(p, self._cfg)
         if materialize is None:
             return
