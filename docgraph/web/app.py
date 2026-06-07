@@ -430,20 +430,13 @@ def create_app(
         )
         st.sqlite.insert_watched_dir(wd)
         scheduled = False
-        if st.watcher.state.value == "enabled" and st.watcher._observer is not None:
-            try:
-                from docgraph.watch.handler import DocgraphEventHandler
-                from docgraph.watch.ignore import IgnoreMatcher
-                st.watcher._ignore_matchers[wd_id] = IgnoreMatcher(wd)
-                st.watcher._watched_dirs_cache[wd_id] = wd
-                st.watcher._observer.schedule(
-                    DocgraphEventHandler(st.watcher, st.watcher._loop),
-                    wd.path, recursive=True,
-                )
+        if st.watcher.state.value == "enabled":
+            from docgraph.watch.ignore import IgnoreMatcher
+            st.watcher._ignore_matchers[wd_id] = IgnoreMatcher(wd)
+            st.watcher._watched_dirs_cache[wd_id] = wd
+            if st.watcher.schedule_dir(wd):
                 asyncio.create_task(st.watcher._reconcile_dir(wd))
                 scheduled = True
-            except Exception:
-                logger.exception("failed to schedule new watched dir")
         return {"id": wd_id, "path": wd.path, "scheduled": scheduled}
 
     @app.delete("/api/watch/dirs/{wd_id}")
@@ -458,18 +451,12 @@ def create_app(
                 if await st.delete_doc(doc.id):
                     deleted += 1
         st.sqlite.delete_watched_dir(wd_id)
-        # Drop cache entries so workers stop matching events for this wd.
+        # Drop caches first so workers stop matching events even if observer
+        # mutation below has a transient gap.
         st.watcher._ignore_matchers.pop(wd_id, None)
         st.watcher._watched_dirs_cache.pop(wd_id, None)
-        if st.watcher.state.value == "enabled" and st.watcher._observer is not None:
-            try:
-                st.watcher._observer.unschedule_all()
-                from docgraph.watch.handler import DocgraphEventHandler
-                handler = DocgraphEventHandler(st.watcher, st.watcher._loop)
-                for remaining in st.sqlite.list_watched_dirs():
-                    st.watcher._observer.schedule(handler, remaining.path, recursive=True)
-            except Exception:
-                logger.exception("failed to reschedule observer after dir removal")
+        if st.watcher.state.value == "enabled":
+            st.watcher.unschedule_dir(wd_id)
         return {"id": wd_id, "deleted_docs": deleted, "unwatched": True}
 
     @app.post("/api/watch/reconcile")

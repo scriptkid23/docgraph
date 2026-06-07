@@ -346,12 +346,16 @@ class SQLiteStore:
         return self._row_to_doc(row)
 
     def list_watched_docs(self, prefix: str) -> list[DocumentRecord]:
-        like = prefix.rstrip("/") + "/%"
+        # GLOB is case-sensitive so SQLite can use the partial unique index
+        # on watched_path for a B-tree range scan. LIKE falls back to a full
+        # table scan whenever case_sensitive_like is off (the default).
         exact = prefix.rstrip("/")
+        glob_children = exact + "/*"
         with self._connect() as conn:
             rows = conn.execute(
-                "SELECT * FROM documents WHERE watched_path = ? OR watched_path LIKE ?",
-                (exact, like),
+                "SELECT * FROM documents "
+                "WHERE watched_path = ? OR watched_path GLOB ?",
+                (exact, glob_children),
             ).fetchall()
         return [self._row_to_doc(r) for r in rows]
 

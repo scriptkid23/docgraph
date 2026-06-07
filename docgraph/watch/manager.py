@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import threading
 import uuid as _uuid
 from datetime import datetime, timezone
 from pathlib import Path
@@ -41,7 +42,12 @@ class WatcherManager:
         self.state: WatcherState = WatcherState.DISABLED
         self.stats = WatcherStats()
         self._lock = asyncio.Lock()
+        # Sync lock guards observer mutation (schedule/unschedule) across the
+        # asyncio thread (HTTP routes) and the watchdog observer thread.
+        self._observer_lock = threading.Lock()
         self._observer = None
+        self._watches: dict[str, object] = {}  # wd_id → ObservedWatch handle
+        self._observer_handler = None
         self._workers: list[asyncio.Task] = []
         self._queues: list[asyncio.Queue] = []
         self._debounce_tasks: dict[str, asyncio.TimerHandle] = {}
@@ -129,13 +135,47 @@ class WatcherManager:
     # ---- placeholders filled in by later tasks ----
     async def _start_observer(self) -> None:
         self._observer = Observer()
-        handler = DocgraphEventHandler(self, self._loop)
+        self._watches: dict[str, object] = {}  # wd_id → ObservedWatch
+        self._observer_handler = DocgraphEventHandler(self, self._loop)
         for wd in self._sqlite.list_watched_dirs():
             try:
-                self._observer.schedule(handler, wd.path, recursive=True)
+                watch = self._observer.schedule(
+                    self._observer_handler, wd.path, recursive=True
+                )
+                self._watches[wd.id] = watch
             except Exception as exc:
                 logger.warning("failed to schedule watch for %s: %s", wd.path, exc)
         self._observer.start()
+
+    def schedule_dir(self, wd) -> bool:
+        """Add a single dir to the running observer. Returns True if scheduled."""
+        if self._observer is None or not self._observer.is_alive():
+            return False
+        with self._observer_lock:
+            try:
+                watch = self._observer.schedule(
+                    self._observer_handler, wd.path, recursive=True
+                )
+                self._watches[wd.id] = watch
+                return True
+            except Exception:
+                logger.exception("schedule_dir failed for wd=%s", wd.id)
+                return False
+
+    def unschedule_dir(self, wd_id: str) -> bool:
+        """Remove a single dir from the running observer. Returns True if removed."""
+        if self._observer is None:
+            return False
+        with self._observer_lock:
+            watch = self._watches.pop(wd_id, None)
+            if watch is None:
+                return False
+            try:
+                self._observer.unschedule(watch)
+                return True
+            except Exception:
+                logger.exception("unschedule_dir failed for wd=%s", wd_id)
+                return False
 
     def _on_raw_event(self, event_type: str, src_path: str, dest_path: str | None) -> None:
         """Called on the asyncio loop via call_soon_threadsafe."""
@@ -287,12 +327,27 @@ class WatcherManager:
             logger.exception("reconcile failed for wd=%s path=%s", wd.id, wd.path)
 
     async def _recovery_loop(self) -> None:
-        # Filled by Task 15.
+        """Periodic backstop: heal dead observer thread + reconcile drift."""
         try:
             while not self._shutdown.is_set():
                 await asyncio.sleep(self._cfg.watch_recovery_interval_sec)
                 if self._shutdown.is_set():
                     return
+                # Heal a dead observer thread before reconciling so the next
+                # cycle has live event capture again.
+                if (self.state == WatcherState.ENABLED
+                        and self._observer is not None
+                        and not self._observer.is_alive()):
+                    logger.warning(
+                        "watcher: observer thread died, rebuilding"
+                    )
+                    try:
+                        # Drop the dead observer first so _start_observer
+                        # builds a fresh one against current watched_dirs.
+                        self._observer = None
+                        await self._start_observer()
+                    except Exception:
+                        logger.exception("observer restart failed")
                 for wd in self._sqlite.list_watched_dirs():
                     await self._reconcile_dir(wd)
         except asyncio.CancelledError:
