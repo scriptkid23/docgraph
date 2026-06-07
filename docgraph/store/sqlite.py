@@ -56,6 +56,41 @@ class SQLiteStore:
             """
         )
 
+    def _ensure_watcher_schema(self) -> None:
+        with self._connect() as conn:
+            # Additive columns on documents (SQLite has no ADD COLUMN IF NOT EXISTS).
+            for ddl in (
+                "ALTER TABLE documents ADD COLUMN watched_path TEXT",
+                "ALTER TABLE documents ADD COLUMN materialize INTEGER",
+                "ALTER TABLE documents ADD COLUMN mtime_ns INTEGER",
+            ):
+                try:
+                    conn.execute(ddl)
+                except sqlite3.OperationalError as exc:
+                    if "duplicate column name" not in str(exc).lower():
+                        raise
+            conn.execute(
+                "CREATE UNIQUE INDEX IF NOT EXISTS idx_documents_watched_path "
+                "ON documents(watched_path) WHERE watched_path IS NOT NULL"
+            )
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS watched_dirs ("
+                "  id TEXT PRIMARY KEY,"
+                "  path TEXT NOT NULL UNIQUE,"
+                "  folder TEXT NOT NULL DEFAULT '',"
+                "  tags TEXT NOT NULL DEFAULT '[]',"
+                "  ignore_globs TEXT NOT NULL DEFAULT '[]',"
+                "  created_at TEXT NOT NULL"
+                ")"
+            )
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS watcher_state ("
+                "  key TEXT PRIMARY KEY,"
+                "  value TEXT NOT NULL"
+                ")"
+            )
+            conn.commit()
+
     def init_schema(self) -> None:
         with self._connect() as conn:
             conn.executescript("""
@@ -80,6 +115,7 @@ class SQLiteStore:
                 CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status);
             """)
             self._migrate_schema(conn)
+        self._ensure_watcher_schema()
 
     def insert_document(self, doc: DocumentRecord) -> None:
         with self._connect() as conn:
