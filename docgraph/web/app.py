@@ -308,6 +308,51 @@ def create_app(
         background_tasks.add_task(st.indexer().reindex_document, doc_id)
         return {"doc_id": doc_id, "status": "processing"}
 
+    @app.get("/api/watch/status")
+    async def watch_status(request: Request):
+        st: AppState = request.app.state.docgraph
+        w = st.watcher
+        observer_running = (
+            w._observer is not None and w._observer.is_alive()
+        ) if w._observer else False
+        return {
+            "enabled": w.state.value == "enabled",
+            "running": observer_running,
+            "dirs_count": len(st.sqlite.list_watched_dirs()),
+            "queue_depth": sum(q.qsize() for q in w._queues),
+            "queue_capacity": st.cfg.watch_queue_capacity,
+            "workers": st.cfg.watch_workers,
+            "last_enabled_at": w._last_enabled_at,
+            "stats": {
+                "events_received": w.stats.events_received,
+                "events_debounced": w.stats.events_debounced,
+                "events_processed": w.stats.events_processed,
+                "events_dropped_queue_full": w.stats.events_dropped_queue_full,
+                "reconcile_runs": w.stats.reconcile_runs,
+                "last_reconcile_at": w.stats.last_reconcile_at,
+            },
+        }
+
+    @app.post("/api/watch/enable", status_code=202)
+    async def watch_enable(request: Request):
+        from docgraph.watch.manager import WatcherTransitionInProgress
+        st: AppState = request.app.state.docgraph
+        try:
+            result = await st.watcher.enable()
+        except WatcherTransitionInProgress as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        return result
+
+    @app.post("/api/watch/disable")
+    async def watch_disable(request: Request):
+        from docgraph.watch.manager import WatcherTransitionInProgress
+        st: AppState = request.app.state.docgraph
+        try:
+            result = await st.watcher.disable()
+        except WatcherTransitionInProgress as exc:
+            raise HTTPException(status_code=409, detail=str(exc))
+        return result
+
     if mount_mcp:
         from docgraph.mcp.server import create_mcp_server
 
