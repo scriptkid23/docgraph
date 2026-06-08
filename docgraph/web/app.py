@@ -73,6 +73,7 @@ def _doc_to_json(doc: DocumentRecord) -> dict:
         "error_message": doc.error_message,
         "source_type": doc.source_type.value,
         "source_url": doc.source_url,
+        "watched_path": doc.watched_path,
     }
 
 
