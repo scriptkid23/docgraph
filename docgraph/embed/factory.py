@@ -15,3 +15,11 @@ def create_embedder(cfg: Config) -> EmbeddingProvider:
             raise ValueError("OPENAI_API_KEY required when embed_provider=openai")
         return OpenAIEmbedder(cfg.openai_api_key, cfg.openai_model)
     raise ValueError(f"unknown embed provider: {cfg.embed_provider}")
+
+
+def create_reranker(cfg: Config):
+    """Create a Reranker or return None if disabled."""
+    from docgraph.embed.rerank import Reranker
+    if not cfg.rerank_enabled:
+        return None
+    return Reranker(model=cfg.rerank_model, cache_dir=cfg.local_model_dir)

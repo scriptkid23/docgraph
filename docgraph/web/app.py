@@ -1,7 +1,9 @@
 from __future__ import annotations
 
+import asyncio
 import logging
 import uuid
+from contextlib import asynccontextmanager
 from pathlib import Path
 
 from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, Request, UploadFile
@@ -57,6 +59,53 @@ async def _run_import_urls(
         logger.exception("URL batch import failed (%d items)", len(items))
 
 
+def _log_task_exception(task: asyncio.Task) -> None:
+    """Done-callback that logs exceptions from fire-and-forget tasks."""
+    if task.cancelled():
+        return
+    exc = task.exception()
+    if exc is not None:
+        logger.warning("Background task failed", exc_info=exc)
+
+
+@asynccontextmanager
+async def _lifespan(app: FastAPI):
+    state = app.state.docgraph
+    cfg = state.cfg
+    # Pre-warm reranker in background
+    if cfg.rerank_enabled and cfg.rerank_prewarm and state.reranker is not None:
+        t = asyncio.create_task(state.reranker.prewarm())
+        t.add_done_callback(_log_task_exception)
+    # Auto-rebuild FTS if empty + Chroma populated; warn-only if stale-but-nonempty.
+    # NOTE: count_chunks() is potentially I/O-blocking; offloaded so the event loop
+    # accepts connections while we read.
+    # KNOWN RACE: if a user uploads a document while auto-rebuild runs, the rebuild's
+    # internal clear() can wipe the new doc's FTS rows (the new doc was added to Chroma
+    # AFTER our snapshot count, so it won't be re-indexed). Window is narrow (startup
+    # only when FTS was empty); workaround is to run `docgraph rebuild-fts` after.
+    if cfg.hybrid_enabled and state.fts is not None:
+        chroma_n = await asyncio.to_thread(state.chroma.count_chunks)
+        fts_n = await asyncio.to_thread(state.fts.count_chunks)
+        if fts_n == 0 and chroma_n > 0:
+            logger.warning(
+                "FTS index empty but Chroma has %d chunks. Auto-rebuilding in background.",
+                chroma_n,
+            )
+            t = asyncio.create_task(
+                state.fts.rebuild_from_chroma(state.chroma, state.sqlite)
+            )
+            t.add_done_callback(_log_task_exception)
+        # Drift threshold is strict `>`: exactly `max(10, 5%)` drift does NOT warn.
+        # 10-chunk floor avoids noise on small corpora (e.g., chroma=20 → 5%=1, floor=10).
+        elif chroma_n > 0 and abs(chroma_n - fts_n) > max(10, chroma_n * 0.05):
+            logger.warning(
+                "FTS index out of sync (chroma=%d, fts=%d). "
+                "Run `docgraph rebuild-fts` to fix.",
+                chroma_n, fts_n,
+            )
+    yield
+
+
 def create_app(
     cfg: Config,
     *,
@@ -65,12 +114,13 @@ def create_app(
 ) -> FastAPI:
     if state is None:
         state = AppState.create(cfg)
-    app = FastAPI(title="DocGraph", version="2.0.0")
+    app = FastAPI(title="DocGraph", version="2.0.0", lifespan=_lifespan)
     app.state.docgraph = state
 
     @app.get("/api/health")
     async def health(request: Request):
         st: AppState = request.app.state.docgraph
+        cfg = st.cfg
         ollama_ok = True
         ollama_error = ""
         try:
@@ -78,12 +128,44 @@ def create_app(
         except Exception as exc:
             ollama_ok = False
             ollama_error = str(exc)
-        mcp_url = f"http://{st.cfg.web_host}:{st.cfg.web_port}/mcp/sse"
+        mcp_url = f"http://{cfg.web_host}:{cfg.web_port}/mcp/sse"
+
+        # Reranker status: disabled | error | loading | ready
+        # - disabled: cfg.rerank_enabled is False (intentional)
+        # - error: cfg.rerank_enabled is True but reranker was not constructed (misconfig)
+        # - loading: reranker constructed but native model not yet initialized
+        # - ready: native model initialized and serving
+        if not cfg.rerank_enabled:
+            rerank_status = "disabled"
+        elif st.reranker is None:
+            rerank_status = "error"
+        elif st.reranker.is_ready:
+            rerank_status = "ready"
+        else:
+            rerank_status = "loading"
+
+        # FTS sync (count_chunks may block; offload)
+        chroma_n = await asyncio.to_thread(st.chroma.count_chunks)
+        fts_n = (
+            await asyncio.to_thread(st.fts.count_chunks)
+            if st.fts is not None else None
+        )
+        fts_in_sync = (
+            None if fts_n is None
+            else abs(chroma_n - fts_n) <= max(10, chroma_n * 0.05)
+        )
+
         return {
             "status": "ok",
             "ollama": {"ok": ollama_ok, "error": ollama_error},
-            "embed_provider": st.cfg.embed_provider,
+            "embed_provider": cfg.embed_provider,
             "mcp_sse_url": mcp_url,
+            "hybrid_enabled": cfg.hybrid_enabled,
+            "rerank_enabled": cfg.rerank_enabled,
+            "rerank_status": rerank_status,
+            "chroma_chunks": chroma_n,
+            "fts_chunks": fts_n,
+            "fts_in_sync": fts_in_sync,
         }
 
     @app.get("/api/documents")
@@ -171,6 +253,17 @@ def create_app(
         if doc is None:
             raise HTTPException(status_code=404, detail="not found")
         st.chroma.delete_by_doc_id(doc_id)
+        fts_store = getattr(st, "fts", None)
+        if fts_store is not None:
+            try:
+                fts_store.delete_by_doc_id(doc_id)
+            except Exception as exc:
+                # Don't fail the user's delete request if FTS sync fails;
+                # log so stale-row drift can be diagnosed.
+                logger.warning(
+                    "FTS5 delete failed for doc_id=%s on DELETE endpoint: %s",
+                    doc_id, exc,
+                )
         st.files.delete_doc_files(doc_id)
         st.sqlite.delete_document(doc_id)
         return {"deleted": doc_id}
@@ -187,7 +280,11 @@ def create_app(
         if doc is None:
             raise HTTPException(status_code=404, detail="not found")
         tag_list = [t.strip() for t in tags.split(",") if t.strip()]
+        # Update all three stores in lockstep to avoid metadata drift.
         st.sqlite.update_tags_folder(doc_id, tag_list, folder)
+        st.chroma.update_doc_metadata(doc_id, folder, tag_list)
+        if st.fts is not None:
+            st.fts.update_doc_metadata(doc_id, folder, tag_list)
         return {"doc_id": doc_id, "folder": folder, "tags": tag_list}
 
     @app.post("/api/documents/{doc_id}/reindex", status_code=202)
@@ -200,6 +297,13 @@ def create_app(
         doc = st.sqlite.get_document(doc_id)
         if doc is None:
             raise HTTPException(status_code=404, detail="not found")
+        if not st.sqlite.claim_for_reindex(doc_id):
+            # Already PROCESSING — a prior upload or reindex is still running.
+            # Spawning another BG task would race the FTS upsert path (plain
+            # INSERT, no unique constraint on chunk_id) and pile up duplicates.
+            raise HTTPException(
+                status_code=409, detail="document is already being processed"
+            )
         background_tasks.add_task(st.indexer().reindex_document, doc_id)
         return {"doc_id": doc_id, "status": "processing"}
 

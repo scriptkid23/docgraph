@@ -12,6 +12,61 @@ from docgraph.web.app import create_app
 from docgraph.web.deps import AppState
 
 
+def cmd_rebuild_fts(args) -> int:
+    """Rebuild the FTS5 index from Chroma. Returns process exit code.
+
+    Side effects: calls SQLiteStore.init_schema() which may migrate the
+    SQLite schema on existing databases (idempotent if no migration needed).
+
+    Exit codes:
+      0 — success (or nothing to rebuild)
+      1 — exception during rebuild
+      2 — silent partial (indexed count < total chroma count)
+    """
+    cfg = load_config()
+    cfg.ensure_dirs()
+    from docgraph.store import ChromaStore, FtsStore, SQLiteStore
+
+    log = logging.getLogger("docgraph.rebuild_fts")
+    sqlite = SQLiteStore(cfg)
+    sqlite.init_schema()
+    chroma = ChromaStore(cfg)
+    fts = FtsStore(cfg)
+
+    print("Counting chunks...")
+    # Snapshot of chunk count BEFORE rebuild. If Chroma is written concurrently
+    # (e.g., by a parallel ingest), `indexed` may diverge from this and trigger
+    # exit code 2. Today DocGraph is single-writer, so the race is theoretical.
+    total = chroma.count_chunks()
+    print(f"Chroma has {total} chunks")
+    if total == 0:
+        print("Nothing to rebuild.")
+        return 0
+
+    def progress(done, t):
+        print(f"  {done}/{t}")
+
+    try:
+        indexed = asyncio.run(
+            fts.rebuild_from_chroma(chroma, sqlite, progress_callback=progress)
+        )
+    except Exception as exc:
+        log.exception("Rebuild failed")
+        print(f"Rebuild failed: {exc}", file=sys.stderr)
+        return 1
+
+    if indexed < total:
+        print(
+            f"Partial rebuild: indexed {indexed} of {total} chunks "
+            f"(check Chroma collection consistency).",
+            file=sys.stderr,
+        )
+        return 2
+
+    print(f"Done. FTS index now has {fts.count_chunks()} chunks.")
+    return 0
+
+
 def _port_available(host: str, port: int) -> bool:
     """Return True if the port is free on the given host."""
     with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as sock:
@@ -153,6 +208,7 @@ def main() -> None:
         action="store_true",
         help="Use MCP stdio instead of HTTP SSE (Cursor launches process directly)",
     )
+    sub.add_parser("rebuild-fts", help="Rebuild FTS index from Chroma (one-shot)")
     reindex_parser = sub.add_parser("reindex", help="Re-index documents")
     reindex_parser.add_argument("--all", action="store_true", help="Re-index all READY docs")
     reindex_parser.add_argument("doc_id", nargs="?", help="Single document id")
@@ -164,6 +220,8 @@ def main() -> None:
     if args.command == "serve":
         _run_serve(stdio=args.stdio)
         return
+    if args.command == "rebuild-fts":
+        sys.exit(cmd_rebuild_fts(args))
     cfg = load_config()
     cfg.ensure_dirs()
     logging.basicConfig(level=logging.INFO)

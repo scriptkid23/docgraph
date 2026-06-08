@@ -154,10 +154,30 @@ class ChromaStore:
             out.append(entry)
         return out
 
+    def update_doc_metadata(self, doc_id: str, folder: str, tags: list[str]) -> None:
+        """Update folder + tags metadata for all chunks of doc_id."""
+        # Chroma stores tags as a JSON string in metadata to support array-ish filters.
+        tags_str = json.dumps(tags)
+        existing = self._collection.get(where={"doc_id": doc_id}, include=["metadatas"])
+        ids = existing.get("ids", []) or []
+        if not ids:
+            return
+        old_metas = existing.get("metadatas", []) or []
+        new_metas = []
+        for m in old_metas:
+            m = dict(m)  # copy so we don't mutate the original
+            m["folder"] = folder
+            m["tags"] = tags_str
+            new_metas.append(m)
+        self._collection.update(ids=ids, metadatas=new_metas)
+
     def delete_by_doc_id(self, doc_id: str) -> None:
         existing = self._collection.get(where={"doc_id": doc_id})
         if existing["ids"]:
             self._collection.delete(ids=existing["ids"])
+
+    def count_chunks(self) -> int:
+        return int(self._collection.count())
 
     def all_chunk_token_stats(self) -> list[dict[str, Any]]:
         """Return per-chunk token counts for diagnostics."""

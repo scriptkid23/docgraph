@@ -17,6 +17,7 @@ from docgraph.ingest.tokenizer import TokenCounter, get_token_counter
 from docgraph.models import DocumentStatus, SourceType
 from docgraph.store.chroma import ChromaStore
 from docgraph.store.files import FileStore
+from docgraph.store.fts import FtsStore
 from docgraph.store.sqlite import SQLiteStore
 
 logger = logging.getLogger(__name__)
@@ -36,6 +37,7 @@ class Indexer:
         files: FileStore,
         chroma: ChromaStore,
         embedder: EmbeddingProvider,
+        fts: "FtsStore | None" = None,
         counter: TokenCounter | None = None,
     ) -> None:
         self._cfg = cfg
@@ -43,6 +45,7 @@ class Indexer:
         self._files = files
         self._chroma = chroma
         self._embedder = embedder
+        self._fts = fts
         self._counter = counter or get_token_counter(cfg)
 
     def _progress(self, doc_id: str, pct: int, phase: str) -> None:
@@ -140,6 +143,7 @@ class Indexer:
             vectors = await self._embed_with_progress(doc_id, chunks)
             self._progress(doc_id, 96, "Saving to index (96%)")
             chroma_chunks = []
+            fts_chunks = []
             for i, (mc, vec) in enumerate(zip(md_chunks, vectors)):
                 if mc.overflow:
                     logger.warning(
@@ -161,7 +165,24 @@ class Indexer:
                         chunker_name="chunk_markdown_sections",
                     )
                 )
+                fts_chunks.append({
+                    "chunk_id": f"{doc_id}_{i}",
+                    "doc_id": doc_id,
+                    "folder": doc.folder,
+                    "tags": json.dumps(doc.tags),
+                    "chunk_index": i,
+                    "text": mc.text,
+                    "filename": doc.filename,
+                })
             self._chroma.upsert_chunks(chroma_chunks)
+            if self._fts is not None and self._cfg.hybrid_enabled:
+                try:
+                    self._fts.upsert_chunks(fts_chunks)
+                except Exception as exc:
+                    logger.warning(
+                        "FTS5 upsert failed for doc_id=%s (search will degrade to vector-only): %s",
+                        doc_id, exc,
+                    )
             self._sqlite.update_status(
                 doc_id,
                 DocumentStatus.READY,
@@ -233,6 +254,7 @@ class Indexer:
             vectors = await self._embed_with_progress(doc_id, chunk_texts)
             self._progress(doc_id, 96, "Saving to index (96%)")
             chroma_chunks = []
+            fts_chunks = []
             for i, (piece, vec, file_path, meta, lang, cname) in enumerate(
                 zip(chunk_texts, vectors, chunk_files, chunk_meta, chunk_languages, chunker_names)
             ):
@@ -251,7 +273,24 @@ class Indexer:
                         overflow=meta.get("overflow", False),
                     )
                 )
+                fts_chunks.append({
+                    "chunk_id": f"{doc_id}_{i}",
+                    "doc_id": doc_id,
+                    "folder": doc.folder,
+                    "tags": json.dumps(doc.tags),
+                    "chunk_index": i,
+                    "text": piece,
+                    "filename": doc.filename,
+                })
             self._chroma.upsert_chunks(chroma_chunks)
+            if self._fts is not None and self._cfg.hybrid_enabled:
+                try:
+                    self._fts.upsert_chunks(fts_chunks)
+                except Exception as exc:
+                    logger.warning(
+                        "FTS5 upsert failed for doc_id=%s (search will degrade to vector-only): %s",
+                        doc_id, exc,
+                    )
             self._sqlite.update_status(
                 doc_id,
                 DocumentStatus.READY,
@@ -342,18 +381,39 @@ class Indexer:
         """Crawl and index multiple URLs reusing one browser session."""
         if not items:
             return
-        async with UrlCrawler(self._cfg) as crawler:
-            for doc_id, url in items:
+        try:
+            async with UrlCrawler(self._cfg) as crawler:
+                for doc_id, url in items:
+                    try:
+                        await self._index_url_with_crawler(doc_id, url, crawler)
+                    except Exception:
+                        logger.exception("URL index failed for doc_id=%s url=%s", doc_id, url)
+        except Exception as exc:
+            # Crawler __aenter__ itself failed (e.g. browser not installed) — no
+            # per-URL handler ran, so docs would stay PROCESSING forever. Mark
+            # every queued doc ERROR with the launch failure so the UI surfaces it.
+            logger.exception("URL crawler failed to start; marking %d docs ERROR", len(items))
+            for doc_id, _url in items:
                 try:
-                    await self._index_url_with_crawler(doc_id, url, crawler)
+                    self._sqlite.update_status(
+                        doc_id, DocumentStatus.ERROR, error_message=str(exc),
+                    )
                 except Exception:
-                    logger.exception("URL index failed for doc_id=%s url=%s", doc_id, url)
+                    logger.exception("failed to mark doc %s as ERROR", doc_id)
 
     async def reindex_document(self, doc_id: str) -> None:
         doc = self._sqlite.get_document(doc_id)
         if doc is None:
             raise ValueError(f"cannot reindex: {doc_id}")
         self._chroma.delete_by_doc_id(doc_id)
+        # Delete from FTS unconditionally when fts is available, regardless of
+        # cfg.hybrid_enabled — purge stale rows even when hybrid is currently
+        # disabled, so toggling hybrid on later doesn't resurrect ghost results.
+        if self._fts is not None:
+            try:
+                self._fts.delete_by_doc_id(doc_id)
+            except Exception as exc:
+                logger.warning("FTS5 delete failed for doc_id=%s: %s", doc_id, exc)
         self._sqlite.update_status(doc_id, DocumentStatus.PROCESSING)
         self._progress(doc_id, 0, "Starting re-index (0%)")
         if doc.source_type == SourceType.URL and doc.source_url:

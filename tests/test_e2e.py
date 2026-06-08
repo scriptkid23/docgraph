@@ -50,3 +50,34 @@ async def test_upload_then_search_e2e(tmp_data_dir):
     results = await svc.search("Ollama embedding", folder="docs")
     assert len(results) >= 1
     assert "Ollama" in results[0].text
+
+
+@pytest.mark.asyncio
+async def test_hybrid_e2e_identifier_query(tmp_path):
+    """Upload markdown with code identifier, query exact symbol, verify hit."""
+    from docgraph.config import Config
+    from docgraph.models import DocumentRecord
+    from docgraph.web.deps import AppState
+
+    cfg = Config(data_dir=tmp_path)
+    cfg.hybrid_enabled = True
+    cfg.rerank_enabled = False  # skip rerank to keep test fast + deterministic
+    state = AppState.create(cfg)
+
+    markdown = (
+        "## Embedding\n\n"
+        "Call `embed_query(text)` to embed user queries.\n\n"
+        "## Vector storage\n\n"
+        "ChromaDB stores embeddings with cosine similarity."
+    )
+    state.sqlite.insert_document(DocumentRecord(
+        id="doc_e2e", filename="readme.md", folder="docs", tags=["test"]
+    ))
+    await state.indexer().index_markdown("doc_e2e", markdown)
+    assert state.fts.count_chunks() > 0
+
+    results = await state.search_service().search("embed_query", top_k=3)
+    assert len(results) >= 1
+    # Identifier should rank chunk 0 (the "embed_query" line) first or near top
+    top_text = results[0].text
+    assert "embed_query" in top_text

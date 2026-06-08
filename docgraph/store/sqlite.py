@@ -39,6 +39,22 @@ class SQLiteStore:
             conn.execute(
                 "ALTER TABLE documents ADD COLUMN source_url TEXT NOT NULL DEFAULT ''"
             )
+        # Hybrid search FTS5 index.
+        # tokenchars '_.-' preserves identifiers like `embed_query`, `v1.5`.
+        conn.executescript(
+            """
+            CREATE VIRTUAL TABLE IF NOT EXISTS chunks_fts USING fts5(
+                chunk_id UNINDEXED,
+                doc_id UNINDEXED,
+                folder UNINDEXED,
+                tags UNINDEXED,
+                chunk_index UNINDEXED,
+                text,
+                filename,
+                tokenize="unicode61 remove_diacritics 2 tokenchars '_.-'"
+            );
+            """
+        )
 
     def init_schema(self) -> None:
         with self._connect() as conn:
@@ -128,6 +144,25 @@ class SQLiteStore:
         if tag:
             docs = [d for d in docs if tag in d.tags]
         return docs
+
+    def claim_for_reindex(self, doc_id: str) -> bool:
+        """Atomically flip status to PROCESSING iff not already PROCESSING.
+
+        Returns True if this caller claimed the slot. False means another
+        indexing pass is already in flight — caller must NOT spawn a second
+        BG task or duplicate FTS rows pile up (fts upsert is plain INSERT).
+        """
+        with self._connect() as conn:
+            cur = conn.execute(
+                "UPDATE documents SET status=?, progress_pct=0, progress_phase='' "
+                "WHERE id=? AND status<>?",
+                (
+                    DocumentStatus.PROCESSING.value,
+                    doc_id,
+                    DocumentStatus.PROCESSING.value,
+                ),
+            )
+            return cur.rowcount == 1
 
     def update_progress(self, doc_id: str, pct: int, phase: str = "") -> None:
         pct = max(0, min(100, int(pct)))

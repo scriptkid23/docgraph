@@ -4,15 +4,12 @@ import json
 
 from mcp.server.fastmcp import FastMCP
 
-from docgraph.mcp.search import SearchService
 from docgraph.web.deps import AppState
 
 
 def create_mcp_server(state: AppState) -> FastMCP:
     mcp = FastMCP("docgraph")
-    search_svc = SearchService(
-        state.cfg, state.sqlite, state.chroma, state.embedder
-    )
+    search_svc = state.search_service()
 
     @mcp.tool()
     async def search_documents(
@@ -21,7 +18,14 @@ def create_mcp_server(state: AppState) -> FastMCP:
         folder: str | None = None,
         top_k: int | None = None,
     ) -> str:
-        """Semantic search over uploaded documents. Returns relevant chunks with metadata."""
+        """Semantic search over uploaded documents. Returns relevant chunks with metadata.
+
+        Args:
+            query: The search query string.
+            tags: Optional list of tags to filter results.
+            folder: Optional folder path to restrict the search scope.
+            top_k: Maximum number of results (1-100). Values >100 are silently capped to 100. Default: cfg.default_top_k (5).
+        """
         try:
             results = await search_svc.search(
                 query=query, top_k=top_k, folder=folder, tags=tags
@@ -42,6 +46,7 @@ def create_mcp_server(state: AppState) -> FastMCP:
                 "tags": r.tags,
                 "chunk_index": r.chunk_index,
                 "score": round(r.score, 4),
+                "rrf_score": round(r.rrf_score, 6),
                 "source_page": r.source_page,
                 "file_path": r.file_path,
                 "heading_path": r.heading_path or [],

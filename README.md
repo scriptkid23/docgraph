@@ -198,7 +198,15 @@ Then in Cursor chat:
 | `DOCGRAPH_CODE_CHUNKER` | `regex` | `regex` or `treesitter` (requires `poetry install -E treesitter`) |
 | `DOCGRAPH_DEDUP_ENABLED` | `true` | Skip duplicate chunk text within a document |
 | `DOCGRAPH_MMR_LAMBDA` | `0.7` | MMR diversity (1.0 = pure relevance) |
-| `DOCGRAPH_RERANK_ENABLED` | `false` | Cross-encoder rerank (`poetry install -E rerank`) |
+| `DOCGRAPH_HYBRID_ENABLED` | `true` | Enable hybrid search (vector + BM25/FTS5) |
+| `DOCGRAPH_RRF_K` | `60` | Reciprocal Rank Fusion constant |
+| `DOCGRAPH_RERANK_ENABLED` | `true` | Enable cross-encoder reranker (`poetry install -E rerank`) |
+| `DOCGRAPH_RERANK_MODEL` | `bge-reranker-v2-m3` | Reranker model (fastembed) |
+| `DOCGRAPH_RERANK_TOP_N` | `4` | Number of candidates passed to the reranker. Each candidate ≈ 700ms cross-encoder forward pass on CPU — see `benchmarks/README.md` |
+| `DOCGRAPH_RERANK_TIMEOUT_SEC` | `3.0` | Per-call rerank timeout (falls back to RRF order on timeout) |
+| `DOCGRAPH_RERANK_PREWARM` | `true` | Warm up reranker model at server startup |
+| `DOCGRAPH_RERANK_SCORE_GAP_RATIO` | `0.5` | Skip rerank when top-1 RRF dominates by this ratio |
+| `DOCGRAPH_RERANK_MIN_FLOOR` | `0.015` | Skip rerank when top-1 RRF score is below this floor |
 
 Re-index after changing chunk settings:
 
@@ -211,6 +219,27 @@ docker compose exec docgraph docgraph reindex --all
 See the [chunker improvements spec](docs/superpowers/specs/2026-06-03-chunker-improvements-design.md).
 
 ---
+
+## Troubleshooting
+
+**"Hybrid search returns vector-only results"**
+The FTS5 index hasn't been populated (e.g., after upgrading from a pre-hybrid version).
+- Automatic: server startup detects an empty FTS index and rebuilds in the background.
+- Manual: `poetry run docgraph rebuild-fts`.
+
+**"Reranker reports disabled / error"**
+Check `GET /api/health` field `rerank_status`:
+- `error` — reranker construction failed. Rebuild the Rust crate inside the Poetry venv:
+  ```bash
+  env -u CONDA_PREFIX -u CONDA_DEFAULT_ENV -u CONDA_SHLVL -u CONDA_PROMPT_MODIFIER \
+    poetry run maturin develop --release \
+    --manifest-path crates/docgraph-embed/Cargo.toml
+  ```
+- `loading` — wait 5–10s; the BGE model is downloading on first use (~600MB).
+- `disabled` — set `DOCGRAPH_RERANK_ENABLED=true` or enable it in the YAML config.
+
+**"First search after startup is slow (~10s)"**
+Reranker cold-start. `rerank_prewarm=true` (default) warms the model in the background at server start; if the first query is still slow, check the server log for prewarm errors.
 
 ## Test
 
