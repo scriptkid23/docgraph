@@ -210,9 +210,21 @@ Then in Cursor chat:
 
 ## File watcher (roadmap 3.1)
 
-Auto-indexes files in user-configured directories. Runtime-toggleable via HTTP API or CLI — no restart needed.
+Auto-indexes files in user-configured directories. Runtime-toggleable via Web UI, CLI, or HTTP API — no restart needed.
 
-### Quick start
+### Quick start — Web UI
+
+Open `http://127.0.0.1:8088`, switch to the **Folder watch** tab (4th tab in the Ingest section):
+
+1. Fill in the **Add directory** form (path, folder, tags, optional ignore globs) → submit. Form rejects non-existent paths inline.
+2. Click **Enable watcher** in the status bar.
+3. Watched docs appear in the Documents table with a `[WATCHED]` badge. Hover the badge to see the full source path.
+4. Click **Reconcile** any time you suspect drift (e.g. after a batch edit on disk) — forces a disk-vs-DB delta scan.
+5. **Remove** a watched dir inline; choose to keep the indexed docs as orphans or delete them too.
+
+The status bar polls `/api/watch/status` every 2s while enabled, 5s while disabled.
+
+### Quick start — CLI
 
 ```bash
 # Add a watched directory (server must be running)
@@ -269,11 +281,45 @@ A file at the same path can exist as **two separate docs** if you both upload it
 | `DELETE` | `/api/watch/dirs/{wd_id}` | Remove a dir (optional `?delete_docs=true`) |
 | `POST` | `/api/watch/reconcile` | Manual reconcile across all dirs (watcher must be enabled) |
 
+### Inside Docker
+
+Docker volumes are declared at container creation, so the watcher inside the container can only see directories that have been bind-mounted into it. The easiest pattern is to mount your home directory read-only once, then add any subfolder runtime without restarting the container:
+
+```yaml
+# docker-compose.yml
+volumes:
+  - docgraph-data:/data
+  - ${HOME}:/host:ro      # entire home, read-only
+```
+
+`docker compose up -d`, then in the Web UI's **Folder watch** tab, add paths under `/host/...`:
+
+| Host path | In-container path you type in the form |
+|---|---|
+| `~/Notes` | `/host/Notes` |
+| `~/Projects/myapp` | `/host/Projects/myapp` |
+
+Read-only mounts are safe — watcher only reads files (spec §8.7 forbids writing user-owned paths). State (watched_dirs, docs, indexes) persists in `docgraph-data`, so container restarts are state-preserving.
+
+For a stricter setup, mount specific folders individually:
+
+```yaml
+volumes:
+  - docgraph-data:/data
+  - ${HOME}/Notes:/watched/notes:ro
+  - ${HOME}/Projects/docgraph:/watched/code:ro
+```
+
+Then use `/watched/notes` etc. in the form. Trade-off: adding a new path later requires editing compose + `docker compose up -d`.
+
+On macOS / Windows Docker Desktop, fsevents propagation through the VirtIOFS/gRPC FUSE layer can sometimes lag. The 10-minute recovery reconcile (config knob `DOCGRAPH_WATCH_RECOVERY_INTERVAL_SEC`) is the backstop; you can also click **Reconcile** in the UI for an immediate sync.
+
 ### Known limitations
 
 - Symlinks are not followed (would risk indexing loops). Documented.
 - macOS fsevents can drop events under burst — the 10-minute recovery reconcile backstops this.
 - Watcher does not auth its endpoints — they inherit whatever auth ships when roadmap 3.4 lands.
+- Docker bind mounts are static — adding a new mount path (when not using the `${HOME}:/host:ro` pattern) requires `docker compose up -d` to recreate the container.
 
 Re-index after changing chunk settings:
 
