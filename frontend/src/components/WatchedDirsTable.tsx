@@ -29,6 +29,7 @@ export function WatchedDirsTable({ refreshTick, onRemoved }: WatchedDirsTablePro
   useEffect(() => {
     let cancelled = false;
     setLoading(true);
+    setError(null);  // Clear stale error from any prior failed fetch.
     fetchWatchedDirs()
       .then((d) => {
         if (!cancelled) setDirs(d);

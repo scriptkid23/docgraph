@@ -59,7 +59,7 @@ export async function importUrls(
 
 export async function fetchWatcherStatus(): Promise<WatcherStatus> {
   const r = await fetch("/api/watch/status");
-  if (!r.ok) throw new Error("watcher status failed");
+  if (!r.ok) throw await _errorFromResponse(r);
   return r.json();
 }
 
@@ -83,7 +83,7 @@ export async function disableWatcher(): Promise<DisableWatcherResult> {
 
 export async function fetchWatchedDirs(): Promise<WatchedDir[]> {
   const r = await fetch("/api/watch/dirs");
-  if (!r.ok) throw new Error("list watched dirs failed");
+  if (!r.ok) throw await _errorFromResponse(r);
   const body = await r.json();
   return body.dirs;
 }

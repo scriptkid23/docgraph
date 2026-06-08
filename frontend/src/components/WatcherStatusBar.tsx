@@ -73,18 +73,37 @@ export function WatcherStatusBar({ refreshTick, onAction }: WatcherStatusBarProp
   }, [refreshTick, status?.enabled]);
 
   const runAction = useCallback(
-    async (kind: "enable" | "disable" | "reconcile", fn: () => Promise<unknown>) => {
+    async (
+      kind: "enable" | "disable" | "reconcile",
+      fn: () => Promise<unknown>,
+      isRetry = false,
+    ) => {
       setActing(kind);
       setError(null);
+      let scheduledRetry = false;
       try {
         await fn();
         const s = await fetchWatcherStatus();
         setStatus(s);
         onAction();
       } catch (e) {
-        setError(e instanceof Error ? e.message : "Action failed");
+        const msg = e instanceof Error ? e.message : "Action failed";
+        // Spec §8: 409 transition-in-progress → auto-retry once after 2s.
+        if (
+          !isRetry &&
+          (kind === "enable" || kind === "disable") &&
+          msg.toLowerCase().includes("transition in progress")
+        ) {
+          scheduledRetry = true;
+          setError(`${msg} — retrying in 2s…`);
+          window.setTimeout(() => void runAction(kind, fn, true), 2000);
+        } else {
+          setError(msg);
+        }
       } finally {
-        setActing(null);
+        // Keep `acting` set while a retry is pending so the button stays
+        // disabled across the 2s gap. The retry call will clear it.
+        if (!scheduledRetry) setActing(null);
       }
     },
     [onAction],
