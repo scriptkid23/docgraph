@@ -19,6 +19,8 @@ def client(tmp_data_dir):
     state = AppState.create(cfg)
     state.codegraph.health_check = AsyncMock(return_value="codegraph 0.5.1-test")
     state.codegraph.init = AsyncMock()
+    state.codegraph.index = AsyncMock()
+    state.codegraph.init_and_index = AsyncMock()
     # Replace indexer with a stub so the background task doesn't pull in fastembed-rs.
     fake_indexer = MagicMock()
     fake_indexer.index_markdown = AsyncMock()
@@ -38,7 +40,7 @@ def test_create_repo_returns_202(client, tmp_data_dir):
     c, state, _ = client
     local = tmp_data_dir / "src_repo"
     _populate_repo(local)
-    state.codegraph.init = AsyncMock()
+    state.codegraph.init_and_index = AsyncMock()
     resp = c.post("/api/repos", json={"source": str(local)})
     assert resp.status_code == 202
     body = resp.json()
@@ -49,7 +51,7 @@ def test_list_get_delete_repo(client, tmp_data_dir):
     c, state, _ = client
     local = tmp_data_dir / "src_repo"
     _populate_repo(local)
-    state.codegraph.init = AsyncMock()
+    state.codegraph.init_and_index = AsyncMock()
     rid = c.post("/api/repos", json={"source": str(local)}).json()["repo_id"]
     assert c.get("/api/repos").status_code == 200
     assert c.get(f"/api/repos/{rid}").status_code == 200

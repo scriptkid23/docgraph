@@ -168,38 +168,35 @@ def create_mcp_server(state: AppState) -> FastMCP:
 
     @mcp.tool()
     async def code_search(query: str, repo: str | None = None) -> str:
-        """Find a symbol by name/text in an imported repo."""
-        return await _run_codegraph("search", repo, query)
+        """Find a symbol by name/text in an imported repo (codegraph query)."""
+        return await _run_codegraph("query", repo, query, "-j")
 
     @mcp.tool()
-    async def code_explore(symbols: list[str], repo: str | None = None) -> str:
-        """Fetch source/context for multiple symbols in one call."""
-        return await _run_codegraph("explore", repo, *symbols)
+    async def code_impact(symbol: str, repo: str | None = None) -> str:
+        """Analyze what code is affected by changing a symbol."""
+        return await _run_codegraph("impact", repo, symbol, "-j")
 
     @mcp.tool()
     async def code_callers(symbol: str, repo: str | None = None) -> str:
         """List callers of a symbol."""
-        return await _run_codegraph("callers", repo, symbol)
+        return await _run_codegraph("callers", repo, symbol, "-j")
 
     @mcp.tool()
     async def code_callees(symbol: str, repo: str | None = None) -> str:
         """List callees of a symbol."""
-        return await _run_codegraph("callees", repo, symbol)
+        return await _run_codegraph("callees", repo, symbol, "-j")
 
     @mcp.tool()
-    async def code_trace(from_sym: str, to_sym: str, repo: str | None = None) -> str:
-        """Trace a call path from one symbol to another."""
-        return await _run_codegraph("trace", repo, from_sym, to_sym)
-
-    @mcp.tool()
-    async def code_context(query: str, repo: str | None = None) -> str:
-        """Composed search + node + edges for a query."""
-        return await _run_codegraph("context", repo, query)
+    async def code_context(task: str, repo: str | None = None) -> str:
+        """Build a task-scoped context bundle (codegraph context, JSON format)."""
+        return await _run_codegraph("context", repo, task, "--format", "json")
 
     @mcp.tool()
     async def code_files(path: str = "", repo: str | None = None) -> str:
         """List files in an imported repo (optionally under a path)."""
-        extra = (path,) if path else ()
+        extra: list[str] = ["-j"]
+        if path:
+            extra.extend(["--filter", path])
         return await _run_codegraph("files", repo, *extra)
 
     return mcp

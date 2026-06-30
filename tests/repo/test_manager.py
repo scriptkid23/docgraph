@@ -38,6 +38,8 @@ def _populate_repo(repo_dir: Path) -> None:
 def _make_manager(cfg, sqlite, files, chroma):
     codegraph = MagicMock()
     codegraph.init = AsyncMock()
+    codegraph.index = AsyncMock()
+    codegraph.init_and_index = AsyncMock()
     indexer = MagicMock()
     indexer.index_markdown = AsyncMock()
     mgr = RepoManager(
@@ -66,7 +68,7 @@ async def test_import_repo_local_path(tmp_data_dir):
     repo = sqlite.get_repo(repo_id)
     assert repo.status == DocumentStatus.READY
     assert repo.doc_count == 2  # README + docs/design.md ; node_modules skipped
-    codegraph.init.assert_awaited_once()
+    codegraph.init_and_index.assert_awaited_once()
     assert indexer.index_markdown.await_count == 2
 
 

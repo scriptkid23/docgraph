@@ -52,7 +52,7 @@ async def test_health_check_missing_binary():
 
 
 @pytest.mark.asyncio
-async def test_run_passes_json_flag_and_parses(tmp_path):
+async def test_run_passes_args_verbatim_and_parses(tmp_path):
     client = CodegraphClient(bin="codegraph")
     payload = {"results": [{"name": "Validator"}]}
     proc = _fake_proc(stdout=json.dumps(payload).encode(), returncode=0)
@@ -60,10 +60,10 @@ async def test_run_passes_json_flag_and_parses(tmp_path):
         "asyncio.create_subprocess_exec",
         AsyncMock(return_value=proc),
     ) as mocked:
-        result = await client.run("search", "Validator", repo_path=tmp_path)
+        result = await client.run("query", "Validator", "-j", repo_path=tmp_path)
     assert result == payload
     args, kwargs = mocked.call_args
-    assert args == ("codegraph", "search", "Validator", "--json")
+    assert args == ("codegraph", "query", "Validator", "-j")
     assert kwargs["cwd"] == str(tmp_path)
 
 
@@ -76,7 +76,7 @@ async def test_run_raises_on_nonzero(tmp_path):
         AsyncMock(return_value=proc),
     ):
         with pytest.raises(RuntimeError) as exc_info:
-            await client.run("search", "X", repo_path=tmp_path)
+            await client.run("query", "X", "-j", repo_path=tmp_path)
     assert "boom" in str(exc_info.value)
 
 
@@ -97,4 +97,4 @@ async def test_init_invokes_progress_cb(tmp_path):
     ):
         await client.init(tmp_path, progress_cb=phases.append)
     assert len(phases) >= 1
-    assert all("Building code index" in p for p in phases)
+    assert all("Initializing code index" in p for p in phases)

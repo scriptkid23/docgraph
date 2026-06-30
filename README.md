@@ -177,12 +177,11 @@ Then in Cursor chat:
 | `get_document` | Get full converted markdown for a document |
 | `list_repos` | List imported repositories |
 | `import_repo` | Queue an import from MCP (URL or local path) |
-| `code_search` | Find a symbol by name/text in an imported repo (codegraph) |
-| `code_explore` | Source/context of multiple symbols at once |
+| `code_search` | Find a symbol by name/text (`codegraph query`) |
 | `code_callers` / `code_callees` | Caller / callee lists |
-| `code_trace` | Call path between two symbols |
-| `code_context` | Composed search + node + edges |
-| `code_files` | List files in the repo |
+| `code_impact` | Blast-radius analysis for changing a symbol |
+| `code_context` | Task-scoped context bundle |
+| `code_files` | List files in the repo (optionally filtered by path) |
 
 ---
 
@@ -202,9 +201,9 @@ Each import:
 
 1. Clones the default branch with `git clone --depth 1` into
    `~/.docgraph/repos/<owner>_<name>/`.
-2. Runs [`codegraph`](https://github.com/colbymchenry/codegraph) `init` for
-   AST + FTS5 code intelligence. The `codegraph` CLI must be on `$PATH`;
-   install with
+2. Runs [`codegraph`](https://github.com/colbymchenry/codegraph) `init` to
+   provision `.codegraph/`, then `codegraph index` to actually populate the
+   knowledge graph. The `codegraph` CLI must be on `$PATH`; install with
    `curl -fsSL https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.sh | sh`.
 3. Vectorizes every `*.md` file (README, docs/) through the existing Chroma
    pipeline so semantic search keeps working alongside structural queries.

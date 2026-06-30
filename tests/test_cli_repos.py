@@ -27,7 +27,7 @@ def test_import_repo_local_in_process(tmp_data_dir):
     local.mkdir(parents=True, exist_ok=True)
     (local / ".git").mkdir()
     (local / "README.md").write_text("# Hi")
-    state.codegraph.init = AsyncMock()
+    state.codegraph.init_and_index = AsyncMock()
     fake_indexer = MagicMock()
     fake_indexer.index_markdown = AsyncMock()
     state._indexer = fake_indexer

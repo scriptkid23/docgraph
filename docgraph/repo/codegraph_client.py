@@ -76,7 +76,13 @@ class CodegraphClient:
         repo_path: Path,
         timeout: float | None = None,
     ) -> Any:
-        argv = (subcommand, *args, "--json")
+        """Run an arbitrary codegraph subcommand and parse its stdout as JSON.
+
+        Caller is responsible for passing the right JSON flag (`-j`,
+        `--json`, or `--format json`) — different subcommands use different
+        flag spellings and this wrapper does not second-guess them.
+        """
+        argv = (subcommand, *args)
         proc = await self._spawn(*argv, cwd=str(repo_path))
         try:
             stdout, stderr = await asyncio.wait_for(
@@ -106,13 +112,16 @@ class CodegraphClient:
         except json.JSONDecodeError:
             return text
 
-    async def init(
+    async def _run_long(
         self,
+        subcommand: str,
         repo_path: Path,
-        *,
+        *extra_args: str,
         progress_cb: Callable[[str], None] | None = None,
+        phase_label: str = "Building code index",
     ) -> None:
-        proc = await self._spawn("init", cwd=str(repo_path))
+        """Run a long-lived codegraph subcommand (init / index) with heartbeat."""
+        proc = await self._spawn(subcommand, *extra_args, cwd=str(repo_path))
         comm_task = asyncio.create_task(proc.communicate())
         elapsed = 0.0
         while not comm_task.done():
@@ -123,9 +132,7 @@ class CodegraphClient:
             except asyncio.TimeoutError:
                 elapsed += self._heartbeat
                 if progress_cb:
-                    progress_cb(
-                        f"Building code index ({int(elapsed)}s elapsed)"
-                    )
+                    progress_cb(f"{phase_label} ({int(elapsed)}s elapsed)")
                 if elapsed >= self._init_timeout:
                     proc.terminate()
                     with contextlib.suppress(asyncio.TimeoutError):
@@ -134,15 +141,61 @@ class CodegraphClient:
                         proc.kill()
                         await proc.wait()
                     raise TimeoutError(
-                        f"codegraph init timed out after {self._init_timeout}s"
+                        f"codegraph {subcommand} timed out after {self._init_timeout}s"
                     )
         stdout, stderr = comm_task.result()
         if proc.returncode != 0:
             raise RuntimeError(
-                f"codegraph init failed (exit {proc.returncode}): "
+                f"codegraph {subcommand} failed (exit {proc.returncode}): "
                 f"{stderr.decode(errors='replace').strip()}"
             )
-        logger.debug("codegraph init done in %s", repo_path)
+        logger.debug(
+            "codegraph %s done in %s (stdout %dB)",
+            subcommand, repo_path, len(stdout),
+        )
+
+    async def init(
+        self,
+        repo_path: Path,
+        *,
+        progress_cb: Callable[[str], None] | None = None,
+    ) -> None:
+        """Initialize CodeGraph in `repo_path` (creates `.codegraph/` skeleton).
+
+        `init` alone does NOT populate the index — it just provisions the SQLite
+        DB. Use `index()` afterwards (or call `init_and_index()`) so that the
+        knowledge graph actually contains symbols and edges.
+        """
+        await self._run_long(
+            "init", repo_path,
+            progress_cb=progress_cb,
+            phase_label="Initializing code index",
+        )
+
+    async def index(
+        self,
+        repo_path: Path,
+        *,
+        force: bool = False,
+        progress_cb: Callable[[str], None] | None = None,
+    ) -> None:
+        """Index all files under `repo_path`. Use `force=True` to rebuild."""
+        extra = ("--force",) if force else ()
+        await self._run_long(
+            "index", repo_path, *extra,
+            progress_cb=progress_cb,
+            phase_label="Building code index",
+        )
+
+    async def init_and_index(
+        self,
+        repo_path: Path,
+        *,
+        progress_cb: Callable[[str], None] | None = None,
+    ) -> None:
+        """Idempotent: provision `.codegraph/` then populate the index."""
+        await self.init(repo_path, progress_cb=progress_cb)
+        await self.index(repo_path, progress_cb=progress_cb)
 
     async def aclose(self) -> None:
         return None

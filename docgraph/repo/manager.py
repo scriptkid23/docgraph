@@ -174,7 +174,7 @@ class RepoManager:
         def hb(phase: str) -> None:
             self._sqlite.update_repo_progress(repo_id, 50, phase)
 
-        await self._codegraph.init(target, progress_cb=hb)
+        await self._codegraph.init_and_index(target, progress_cb=hb)
 
         md_files = list(_iter_markdown_files(target))
         total = len(md_files) or 1

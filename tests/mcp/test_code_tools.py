@@ -35,8 +35,8 @@ async def test_mcp_has_code_tools(tmp_data_dir):
     names = {t.name for t in tools}
     expected = {
         "list_repos", "import_repo",
-        "code_search", "code_explore", "code_callers", "code_callees",
-        "code_trace", "code_context", "code_files",
+        "code_search", "code_impact", "code_callers", "code_callees",
+        "code_context", "code_files",
     }
     assert expected.issubset(names)
 
@@ -57,8 +57,9 @@ async def test_code_search_uses_resolved_repo(tmp_data_dir):
     body = json.loads(payload)
     assert body["result"]["results"][0]["name"] == "Validator"
     args, kwargs = state.codegraph.run.call_args
-    assert args[0] == "search"
+    assert args[0] == "query"
     assert "Validator" in args
+    assert "-j" in args
     assert str(kwargs["repo_path"]).endswith("x")
 
 
