@@ -5,7 +5,7 @@ import sqlite3
 from typing import Optional
 
 from docgraph.config import Config
-from docgraph.models import DocumentRecord, DocumentStatus, SourceType, WatchedDirRecord
+from docgraph.models import DocumentRecord, DocumentStatus, RepoRecord, SourceType, WatchedDirRecord
 
 
 class SQLiteStore:
@@ -43,6 +43,13 @@ class SQLiteStore:
         if "source_url" not in cols:
             conn.execute(
                 "ALTER TABLE documents ADD COLUMN source_url TEXT NOT NULL DEFAULT ''"
+            )
+        if "repo_id" not in cols:
+            conn.execute(
+                "ALTER TABLE documents ADD COLUMN repo_id TEXT NOT NULL DEFAULT ''"
+            )
+            conn.execute(
+                "CREATE INDEX IF NOT EXISTS idx_documents_repo_id ON documents(repo_id)"
             )
         # Hybrid search FTS5 index.
         # tokenchars '_.-' preserves identifiers like `embed_query`, `v1.5`.
@@ -118,6 +125,24 @@ class SQLiteStore:
                 CREATE INDEX IF NOT EXISTS idx_documents_folder ON documents(folder);
                 CREATE INDEX IF NOT EXISTS idx_documents_created_at ON documents(created_at DESC);
                 CREATE INDEX IF NOT EXISTS idx_documents_status ON documents(status);
+                CREATE TABLE IF NOT EXISTS repos (
+                    id TEXT PRIMARY KEY,
+                    name TEXT NOT NULL,
+                    source_url TEXT NOT NULL DEFAULT '',
+                    local_path TEXT NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'processing',
+                    progress_pct INTEGER NOT NULL DEFAULT 0,
+                    progress_phase TEXT NOT NULL DEFAULT '',
+                    error_message TEXT,
+                    folder TEXT NOT NULL DEFAULT '',
+                    tags TEXT NOT NULL DEFAULT '[]',
+                    doc_count INTEGER NOT NULL DEFAULT 0,
+                    cancel_requested INTEGER NOT NULL DEFAULT 0,
+                    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+                );
+                CREATE INDEX IF NOT EXISTS idx_repos_status ON repos(status);
+                CREATE INDEX IF NOT EXISTS idx_repos_created_at ON repos(created_at DESC);
+                CREATE INDEX IF NOT EXISTS idx_repos_name ON repos(name);
             """)
             self._migrate_schema(conn)
         self._ensure_watcher_schema()
@@ -128,8 +153,8 @@ class SQLiteStore:
                 """INSERT INTO documents
                    (id, filename, folder, tags, status, chunk_count, progress_pct,
                     progress_phase, error_message, original_path, markdown_path,
-                    source_type, source_url, watched_path, materialize, mtime_ns)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                    source_type, source_url, watched_path, materialize, mtime_ns, repo_id)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 (
                     doc.id, doc.filename, doc.folder, json.dumps(doc.tags),
                     doc.status.value, doc.chunk_count, doc.progress_pct,
@@ -139,6 +164,7 @@ class SQLiteStore:
                     doc.watched_path,
                     int(doc.materialize) if doc.materialize is not None else None,
                     doc.mtime_ns,
+                    doc.repo_id,
                 ),
             )
 
@@ -162,6 +188,7 @@ class SQLiteStore:
             watched_path=row["watched_path"] if "watched_path" in keys else None,
             materialize=bool(raw_materialize) if raw_materialize is not None else None,
             mtime_ns=row["mtime_ns"] if "mtime_ns" in keys else None,
+            repo_id=row["repo_id"] if "repo_id" in keys else "",
         )
 
     def get_document(self, doc_id: str) -> Optional[DocumentRecord]:
@@ -317,6 +344,127 @@ class SQLiteStore:
         with self._connect() as conn:
             cur = conn.execute("DELETE FROM watched_dirs WHERE id = ?", (wd_id,))
             return cur.rowcount > 0
+
+    # ------------------------------------------------------------------
+    # repos CRUD (codegraph integration)
+    # ------------------------------------------------------------------
+
+    def _row_to_repo(self, row: sqlite3.Row) -> RepoRecord:
+        return RepoRecord(
+            id=row["id"],
+            name=row["name"],
+            source_url=row["source_url"],
+            local_path=row["local_path"],
+            status=DocumentStatus(row["status"]),
+            progress_pct=int(row["progress_pct"]),
+            progress_phase=row["progress_phase"],
+            error_message=row["error_message"],
+            folder=row["folder"],
+            tags=json.loads(row["tags"]),
+            doc_count=int(row["doc_count"]),
+            cancel_requested=bool(row["cancel_requested"]),
+        )
+
+    def insert_repo(self, repo: RepoRecord) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                """INSERT INTO repos
+                   (id, name, source_url, local_path, status, progress_pct,
+                    progress_phase, error_message, folder, tags, doc_count, cancel_requested)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    repo.id, repo.name, repo.source_url, repo.local_path,
+                    repo.status.value, repo.progress_pct, repo.progress_phase,
+                    repo.error_message, repo.folder, json.dumps(repo.tags),
+                    repo.doc_count, 1 if repo.cancel_requested else 0,
+                ),
+            )
+
+    def get_repo(self, repo_id: str) -> Optional[RepoRecord]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM repos WHERE id = ?", (repo_id,)
+            ).fetchone()
+        return self._row_to_repo(row) if row else None
+
+    def get_repo_by_name(self, name: str) -> Optional[RepoRecord]:
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM repos WHERE name = ? COLLATE NOCASE LIMIT 1",
+                (name,),
+            ).fetchone()
+        return self._row_to_repo(row) if row else None
+
+    def get_repo_by_source(self, source_url: str) -> Optional[RepoRecord]:
+        if not source_url:
+            return None
+        with self._connect() as conn:
+            row = conn.execute(
+                "SELECT * FROM repos WHERE source_url = ? LIMIT 1",
+                (source_url,),
+            ).fetchone()
+        return self._row_to_repo(row) if row else None
+
+    def list_repos(self) -> list[RepoRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM repos ORDER BY created_at DESC"
+            ).fetchall()
+        return [self._row_to_repo(r) for r in rows]
+
+    def update_repo_progress(self, repo_id: str, pct: int, phase: str = "") -> None:
+        pct = max(0, min(100, int(pct)))
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE repos SET progress_pct=?, progress_phase=? WHERE id=?",
+                (pct, phase, repo_id),
+            )
+
+    def update_repo_status(
+        self,
+        repo_id: str,
+        status: DocumentStatus,
+        *,
+        doc_count: int = 0,
+        error_message: Optional[str] = None,
+    ) -> None:
+        with self._connect() as conn:
+            if status == DocumentStatus.READY:
+                conn.execute(
+                    """UPDATE repos SET status=?, doc_count=?, error_message=NULL,
+                       progress_pct=100, progress_phase='' WHERE id=?""",
+                    (status.value, doc_count, repo_id),
+                )
+            elif status == DocumentStatus.ERROR:
+                conn.execute(
+                    "UPDATE repos SET status=?, error_message=? WHERE id=?",
+                    (status.value, error_message, repo_id),
+                )
+            else:
+                conn.execute(
+                    """UPDATE repos SET status=?, error_message=NULL,
+                       progress_pct=0, progress_phase='' WHERE id=?""",
+                    (status.value, repo_id),
+                )
+
+    def update_repo_cancel(self, repo_id: str, cancel: bool) -> None:
+        with self._connect() as conn:
+            conn.execute(
+                "UPDATE repos SET cancel_requested=? WHERE id=?",
+                (1 if cancel else 0, repo_id),
+            )
+
+    def delete_repo(self, repo_id: str) -> None:
+        with self._connect() as conn:
+            conn.execute("DELETE FROM repos WHERE id = ?", (repo_id,))
+
+    def list_documents_by_repo(self, repo_id: str) -> list[DocumentRecord]:
+        with self._connect() as conn:
+            rows = conn.execute(
+                "SELECT * FROM documents WHERE repo_id = ? ORDER BY created_at DESC",
+                (repo_id,),
+            ).fetchall()
+        return [self._row_to_doc(r) for r in rows]
 
     # ------------------------------------------------------------------
     # watcher_state CRUD

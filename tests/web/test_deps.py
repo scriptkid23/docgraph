@@ -31,3 +31,12 @@ def test_appstate_reranker_created_when_enabled(tmp_path):
     cfg.rerank_enabled = True
     state = AppState.create(cfg)
     assert state.reranker is not None
+
+
+def test_appstate_has_codegraph_and_repos(tmp_data_dir):
+    from docgraph.repo.codegraph_client import CodegraphClient
+    from docgraph.repo.manager import RepoManager
+    cfg = Config(data_dir=tmp_data_dir)
+    state = AppState.create(cfg)
+    assert isinstance(state.codegraph, CodegraphClient)
+    assert isinstance(state.repos(), RepoManager)

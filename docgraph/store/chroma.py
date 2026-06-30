@@ -102,12 +102,15 @@ class ChromaStore:
         top_k: int = 5,
         folder: Optional[str] = None,
         tags: Optional[list[str]] = None,
+        repo_id: Optional[str] = None,
         *,
         include_embeddings: bool = False,
     ) -> list[dict[str, Any]]:
         where: dict[str, Any] = {}
         if folder:
             where["folder"] = folder
+        if repo_id:
+            where["repo_id"] = repo_id
         kwargs: dict[str, Any] = {
             "query_embeddings": [query_embedding],
             "n_results": top_k,

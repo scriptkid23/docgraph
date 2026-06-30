@@ -80,3 +80,27 @@ def test_search_returns_file_path(tmp_data_dir):
     }])
     results = store.search(query_embedding=[0.1] * 768, top_k=1)
     assert results[0]["file_path"] == "src/a.py"
+
+
+def test_chroma_search_filters_by_repo_id(tmp_data_dir):
+    cfg = Config(data_dir=tmp_data_dir)
+    cfg.ensure_dirs()
+    chroma = ChromaStore(cfg)
+    chroma.upsert_chunks([
+        {
+            "id": "a_0", "embedding": [0.1] * 768, "text": "alpha",
+            "metadata": {
+                "doc_id": "a", "filename": "a.md", "folder": "",
+                "tags": "[]", "chunk_index": 0, "repo_id": "repo_x",
+            },
+        },
+        {
+            "id": "b_0", "embedding": [0.1] * 768, "text": "beta",
+            "metadata": {
+                "doc_id": "b", "filename": "b.md", "folder": "",
+                "tags": "[]", "chunk_index": 0, "repo_id": "repo_y",
+            },
+        },
+    ])
+    out = chroma.search(query_embedding=[0.1] * 768, top_k=5, repo_id="repo_x")
+    assert [r["doc_id"] for r in out] == ["a"]

@@ -172,9 +172,50 @@ Then in Cursor chat:
 
 | Tool | Description |
 |------|-------------|
-| `search_documents` | Semantic search over indexed documents |
+| `search_documents` | Semantic search over indexed documents (filter by `repo`) |
 | `list_documents` | List documents with optional filters |
 | `get_document` | Get full converted markdown for a document |
+| `list_repos` | List imported repositories |
+| `import_repo` | Queue an import from MCP (URL or local path) |
+| `code_search` | Find a symbol by name/text in an imported repo (codegraph) |
+| `code_explore` | Source/context of multiple symbols at once |
+| `code_callers` / `code_callees` | Caller / callee lists |
+| `code_trace` | Call path between two symbols |
+| `code_context` | Composed search + node + edges |
+| `code_files` | List files in the repo |
+
+---
+
+## Repositories
+
+Import a GitHub URL or an absolute local path to make a repo's structural
+code intelligence available to Cursor via the same MCP entry point.
+
+```bash
+# from the running Web UI: paste URL into the "Repositories" tab, or:
+docgraph import-repo https://github.com/ethereum/go-ethereum --folder chains --tag evm
+docgraph list-repos
+docgraph delete-repo go-ethereum
+```
+
+Each import:
+
+1. Clones the default branch with `git clone --depth 1` into
+   `~/.docgraph/repos/<owner>_<name>/`.
+2. Runs [`codegraph`](https://github.com/colbymchenry/codegraph) `init` for
+   AST + FTS5 code intelligence. The `codegraph` CLI must be on `$PATH`;
+   install with
+   `curl -fsSL https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.sh | sh`.
+3. Vectorizes every `*.md` file (README, docs/) through the existing Chroma
+   pipeline so semantic search keeps working alongside structural queries.
+
+`search_documents` accepts an optional `repo` argument that scopes vector
+search to a single repository. Code-shape queries should go through the
+`code_*` tools instead.
+
+> Heads up: large public repos (e.g., go-ethereum) can be several hundred
+> MB once cloned. Allocate at least 5 GB free space on the volume backing
+> `DOCGRAPH_REPOS_DIR` if you plan to index multiple of them.
 
 ---
 
@@ -192,6 +233,10 @@ Then in Cursor chat:
 | `DOCGRAPH_CRAWL_TIMEOUT_SEC` | `30` | Per-URL crawl timeout |
 | `DOCGRAPH_MAX_URLS_PER_IMPORT` | `50` | Max URLs per import batch |
 | `DOCGRAPH_MAX_CHUNKS_PER_DOC` | `5000` | Hard cap on chunks per document (oversize → ERROR) |
+| `DOCGRAPH_REPOS_DIR` | `<data_dir>/repos` | Where cloned repos live |
+| `DOCGRAPH_CODEGRAPH_BIN` | `codegraph` | Path or name of the codegraph CLI |
+| `DOCGRAPH_CODEGRAPH_INIT_TIMEOUT_SEC` | `600` | Per-repo `codegraph init` timeout |
+| `DOCGRAPH_CODEGRAPH_QUERY_TIMEOUT_SEC` | `30` | Per-query timeout |
 | `DOCGRAPH_TOKENIZER_SOURCE` | `auto` | `auto`, `char-ratio`, or `tiktoken` |
 | `DOCGRAPH_HEADING_PREFIX` | `true` | Prepend heading breadcrumb to markdown chunks |
 | `DOCGRAPH_ATOMIC_BLOCKS` | `true` | Keep code fences and tables atomic when chunking |

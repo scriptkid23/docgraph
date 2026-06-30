@@ -1,5 +1,5 @@
 from docgraph.config import Config
-from docgraph.models import DocumentRecord, DocumentStatus
+from docgraph.models import DocumentRecord, DocumentStatus, RepoRecord
 from docgraph.store.sqlite import SQLiteStore
 
 
@@ -57,3 +57,50 @@ def test_update_status(tmp_data_dir):
     got = db.get_document("d1")
     assert got.status == DocumentStatus.READY
     assert got.chunk_count == 5
+
+
+def test_repos_lifecycle(tmp_data_dir):
+    cfg = Config(data_dir=tmp_data_dir)
+    cfg.ensure_dirs()
+    db = SQLiteStore(cfg)
+    db.init_schema()
+    r = RepoRecord(
+        id="repo_a", name="go-ethereum",
+        source_url="https://github.com/ethereum/go-ethereum",
+        local_path=str(tmp_data_dir / "repos" / "ethereum_go-ethereum"),
+        folder="chains", tags=["evm", "core"],
+    )
+    db.insert_repo(r)
+    got = db.get_repo("repo_a")
+    assert got is not None
+    assert got.name == "go-ethereum"
+    assert got.tags == ["evm", "core"]
+    assert got.cancel_requested is False
+    assert db.get_repo_by_name("go-ethereum").id == "repo_a"
+    assert db.get_repo_by_source(
+        "https://github.com/ethereum/go-ethereum"
+    ).id == "repo_a"
+    db.update_repo_progress("repo_a", 40, "Building code index")
+    assert db.get_repo("repo_a").progress_phase == "Building code index"
+    db.update_repo_status("repo_a", DocumentStatus.READY, doc_count=12)
+    g = db.get_repo("repo_a")
+    assert g.status == DocumentStatus.READY
+    assert g.doc_count == 12
+    assert g.progress_pct == 100
+    db.update_repo_cancel("repo_a", True)
+    assert db.get_repo("repo_a").cancel_requested is True
+    db.delete_repo("repo_a")
+    assert db.get_repo("repo_a") is None
+
+
+def test_documents_have_repo_id(tmp_data_dir):
+    cfg = Config(data_dir=tmp_data_dir)
+    cfg.ensure_dirs()
+    db = SQLiteStore(cfg)
+    db.init_schema()
+    doc = DocumentRecord(id="doc_1", filename="README.md", repo_id="repo_a")
+    db.insert_document(doc)
+    got = db.get_document("doc_1")
+    assert got.repo_id == "repo_a"
+    by_repo = db.list_documents_by_repo("repo_a")
+    assert [d.id for d in by_repo] == ["doc_1"]

@@ -159,3 +159,43 @@ def test_watcher_workers_validation():
     cfg.watch_workers = 33
     with pytest.raises(ValueError, match="watch_workers"):
         cfg.validate()
+
+
+def test_config_repos_defaults(tmp_data_dir):
+    cfg = Config(data_dir=tmp_data_dir)
+    assert cfg.repos_dir == tmp_data_dir / "repos"
+    assert cfg.codegraph_bin == "codegraph"
+    assert cfg.codegraph_init_timeout_sec == 600
+    assert cfg.codegraph_query_timeout_sec == 30
+
+
+def test_ensure_dirs_creates_repos(tmp_data_dir):
+    cfg = Config(data_dir=tmp_data_dir)
+    cfg.ensure_dirs()
+    assert cfg.repos_dir.is_dir()
+
+
+def test_repos_yaml_override(tmp_path, monkeypatch):
+    data_dir = tmp_path / "data"
+    data_dir.mkdir()
+    (data_dir / "config.yaml").write_text(yaml.dump({
+        "repos": {
+            "bin": "/custom/codegraph",
+            "init_timeout_sec": 1200,
+            "query_timeout_sec": 45,
+        }
+    }))
+    monkeypatch.setenv("DOCGRAPH_DATA_DIR", str(data_dir))
+    cfg = load_config()
+    assert cfg.codegraph_bin == "/custom/codegraph"
+    assert cfg.codegraph_init_timeout_sec == 1200
+    assert cfg.codegraph_query_timeout_sec == 45
+
+
+def test_repos_env_override(tmp_path, monkeypatch):
+    monkeypatch.setenv("DOCGRAPH_DATA_DIR", str(tmp_path))
+    monkeypatch.setenv("DOCGRAPH_CODEGRAPH_BIN", "/usr/local/bin/cg")
+    monkeypatch.setenv("DOCGRAPH_CODEGRAPH_INIT_TIMEOUT_SEC", "900")
+    cfg = load_config()
+    assert cfg.codegraph_bin == "/usr/local/bin/cg"
+    assert cfg.codegraph_init_timeout_sec == 900

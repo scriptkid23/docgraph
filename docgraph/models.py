@@ -36,6 +36,7 @@ class DocumentRecord:
     watched_path: Optional[str] = None
     materialize: Optional[bool] = None
     mtime_ns: Optional[int] = None
+    repo_id: str = ""
 
 
 @dataclass
@@ -78,3 +79,19 @@ class WatchedDirRecord:
     tags: list[str] = field(default_factory=list)
     ignore_globs: list[str] = field(default_factory=list)
     created_at: str = ""
+
+
+@dataclass
+class RepoRecord:
+    id: str
+    name: str
+    source_url: str = ""
+    local_path: str = ""
+    status: DocumentStatus = DocumentStatus.PROCESSING
+    progress_pct: int = 0
+    progress_phase: str = ""
+    error_message: Optional[str] = None
+    folder: str = ""
+    tags: list[str] = field(default_factory=list)
+    doc_count: int = 0
+    cancel_requested: bool = False

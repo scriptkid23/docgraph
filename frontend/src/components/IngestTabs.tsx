@@ -1,22 +1,25 @@
 import { useState } from "react";
 import { FolderWatchSection } from "./FolderWatchSection";
 import { LinkImportSection } from "./LinkImportSection";
+import { RepoImportSection } from "./RepoImportSection";
 import { UploadSection } from "./UploadSection";
 
-type IngestTab = "upload" | "web" | "code" | "watch";
+type IngestTab = "upload" | "web" | "code" | "watch" | "repo";
 
 const TABS: { id: IngestTab; label: string }[] = [
   { id: "upload", label: "Upload" },
   { id: "web", label: "Web pages" },
   { id: "code", label: "Code" },
   { id: "watch", label: "Folder watch" },
+  { id: "repo", label: "Repositories" },
 ];
 
 interface IngestTabsProps {
   onChanged: () => void;
+  onReposChanged?: () => void;
 }
 
-export function IngestTabs({ onChanged }: IngestTabsProps) {
+export function IngestTabs({ onChanged, onReposChanged }: IngestTabsProps) {
   const [tab, setTab] = useState<IngestTab>("upload");
 
   return (
@@ -58,6 +61,12 @@ export function IngestTabs({ onChanged }: IngestTabsProps) {
           <UploadSection embedded onUploaded={onChanged} variant="code" />
         )}
         {tab === "watch" && <FolderWatchSection onChanged={onChanged} />}
+        {tab === "repo" && (
+          <RepoImportSection
+            embedded
+            onImported={onReposChanged || onChanged}
+          />
+        )}
       </div>
     </section>
   );

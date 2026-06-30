@@ -30,27 +30,43 @@ export function Header({
     }
   }
 
+  const codegraphMissing =
+    health?.codegraph !== undefined && health.codegraph.ok === false;
+
   return (
-    <header className="app-header">
-      <div>
-        <p className="hero-eyebrow">Local document RAG</p>
-        <h1 className="hero-title">Documents</h1>
-        <div className="hero-rule-wrap" aria-hidden="true">
-          <div className="hero-rule" />
+    <>
+      <header className="app-header">
+        <div>
+          <p className="hero-eyebrow">Local document RAG</p>
+          <h1 className="hero-title">Documents</h1>
+          <div className="hero-rule-wrap" aria-hidden="true">
+            <div className="hero-rule" />
+          </div>
+          <p className={stripClass}>{statusText}</p>
         </div>
-        <p className={stripClass}>{statusText}</p>
-      </div>
-      <div className="header-actions">
-        <span className="doc-count-pill">
-          {documentCount} indexed
-          {processingCount > 0 ? ` · ${processingCount} processing` : ""}
-        </span>
-        {health?.mcp_sse_url && (
-          <Button asLink href={health.mcp_sse_url} variant="outline" size="sm">
-            MCP SSE →
-          </Button>
-        )}
-      </div>
-    </header>
+        <div className="header-actions">
+          <span className="doc-count-pill">
+            {documentCount} indexed
+            {processingCount > 0 ? ` · ${processingCount} processing` : ""}
+          </span>
+          {health?.mcp_sse_url && (
+            <Button asLink href={health.mcp_sse_url} variant="outline" size="sm">
+              MCP SSE →
+            </Button>
+          )}
+        </div>
+      </header>
+      {codegraphMissing && (
+        <div className="health-strip health-strip--bad" role="alert">
+          <strong>codegraph CLI not found.</strong> Repositories will be
+          unavailable until you install it:{" "}
+          <code>
+            curl -fsSL
+            https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.sh
+            | sh
+          </code>
+        </div>
+      )}
+    </>
   );
 }

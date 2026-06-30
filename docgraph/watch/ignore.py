@@ -16,6 +16,7 @@ HARDCODED_IGNORE_DIRS = frozenset({
     "node_modules", "__pycache__", ".venv", "venv", ".tox",
     ".mypy_cache", ".pytest_cache", ".ruff_cache",
     "target", "dist", "build", ".next", ".nuxt",
+    ".codegraph",
 })
 
 HARDCODED_IGNORE_FILES = frozenset({

@@ -62,6 +62,11 @@ class Config:
     watch_recovery_interval_sec: int = 600
     watch_extra_text_exts: list[str] = field(default_factory=list)
     watch_extra_binary_exts: list[str] = field(default_factory=list)
+    # Repos (codegraph integration)
+    codegraph_bin: str = "codegraph"
+    codegraph_init_timeout_sec: int = 600
+    codegraph_query_timeout_sec: int = 30
+    _repos_dir_override: Path | None = None
 
     @property
     def sqlite_path(self) -> Path:
@@ -83,11 +88,16 @@ class Config:
     def local_model_dir(self) -> Path:
         return self.data_dir / "models"
 
+    @property
+    def repos_dir(self) -> Path:
+        return self._repos_dir_override or (self.data_dir / "repos")
+
     def ensure_dirs(self) -> None:
         self.data_dir.mkdir(parents=True, exist_ok=True)
         self.chroma_path.mkdir(parents=True, exist_ok=True)
         self.originals_dir.mkdir(parents=True, exist_ok=True)
         self.markdown_dir.mkdir(parents=True, exist_ok=True)
+        self.repos_dir.mkdir(parents=True, exist_ok=True)
 
     def validate(self) -> None:
         """Resolve conflicts and enforce bounds. Raise on invalid values."""
@@ -171,6 +181,16 @@ def _apply_yaml(cfg: Config, data: dict[str, Any]) -> None:
                 cfg.rerank_min_floor = float(
                     gate.get("min_floor", cfg.rerank_min_floor)
                 )
+    if repos := data.get("repos"):
+        if d := repos.get("dir"):
+            cfg._repos_dir_override = _expand_path(d)
+        cfg.codegraph_bin = repos.get("bin", cfg.codegraph_bin)
+        cfg.codegraph_init_timeout_sec = int(
+            repos.get("init_timeout_sec", cfg.codegraph_init_timeout_sec)
+        )
+        cfg.codegraph_query_timeout_sec = int(
+            repos.get("query_timeout_sec", cfg.codegraph_query_timeout_sec)
+        )
     if watch := data.get("watch"):
         cfg.watch_debounce_sec = float(watch.get("debounce_sec", cfg.watch_debounce_sec))
         cfg.watch_queue_capacity = int(watch.get("queue_capacity", cfg.watch_queue_capacity))
@@ -259,6 +279,14 @@ def _apply_env(cfg: Config) -> None:
         cfg.watch_extra_text_exts = [e.strip() for e in v.split(",") if e.strip()]
     if v := os.getenv("DOCGRAPH_WATCH_EXTRA_BINARY_EXTS"):
         cfg.watch_extra_binary_exts = [e.strip() for e in v.split(",") if e.strip()]
+    if v := os.getenv("DOCGRAPH_REPOS_DIR"):
+        cfg._repos_dir_override = _expand_path(v)
+    if v := os.getenv("DOCGRAPH_CODEGRAPH_BIN"):
+        cfg.codegraph_bin = v
+    if v := os.getenv("DOCGRAPH_CODEGRAPH_INIT_TIMEOUT_SEC"):
+        cfg.codegraph_init_timeout_sec = int(v)
+    if v := os.getenv("DOCGRAPH_CODEGRAPH_QUERY_TIMEOUT_SEC"):
+        cfg.codegraph_query_timeout_sec = int(v)
 
 
 def load_config() -> Config:

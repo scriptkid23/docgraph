@@ -96,6 +96,8 @@ class Indexer:
         }
         if doc.source_url:
             metadata["source_url"] = doc.source_url
+        if getattr(doc, "repo_id", ""):
+            metadata["repo_id"] = doc.repo_id
         if file_path:
             metadata["file_path"] = file_path
         if language:

@@ -8,11 +8,13 @@ from docgraph.config import Config
 from docgraph.embed.factory import create_embedder, create_reranker
 from docgraph.embed.provider import EmbeddingProvider
 from docgraph.ingest.indexer import Indexer
+from docgraph.repo.codegraph_client import CodegraphClient
 from docgraph.store import ChromaStore, FileStore, FtsStore, SQLiteStore
 
 if TYPE_CHECKING:
     from docgraph.embed.rerank import Reranker
     from docgraph.mcp.search import SearchService
+    from docgraph.repo.manager import RepoManager
     from docgraph.watch.manager import WatcherManager
 
 logger = logging.getLogger(__name__)
@@ -27,6 +29,7 @@ class AppState:
     embedder: EmbeddingProvider
     fts: Optional[FtsStore] = field(default=None)
     reranker: Optional["Reranker"] = field(default=None)
+    codegraph: Optional[CodegraphClient] = field(default=None)
     _indexer: Optional[Indexer] = field(default=None, repr=False)
     _watcher: Optional["WatcherManager"] = field(default=None, repr=False, compare=False)
 
@@ -44,6 +47,19 @@ class AppState:
             embedder=create_embedder(cfg),
             fts=fts,
             reranker=create_reranker(cfg),
+            codegraph=CodegraphClient(
+                bin=cfg.codegraph_bin,
+                init_timeout_sec=cfg.codegraph_init_timeout_sec,
+                query_timeout_sec=cfg.codegraph_query_timeout_sec,
+            ),
+        )
+
+    def repos(self) -> "RepoManager":
+        from docgraph.repo.manager import RepoManager
+        return RepoManager(
+            cfg=self.cfg, sqlite=self.sqlite, files=self.files,
+            chroma=self.chroma, codegraph=self.codegraph,
+            indexer_factory=self.indexer,
         )
 
     def indexer(self) -> Indexer:

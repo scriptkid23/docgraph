@@ -13,6 +13,7 @@ export interface Document {
   source_type?: "file" | "url" | "watched";
   source_url?: string;
   watched_path?: string;
+  repo_id?: string;
 }
 
 export interface HealthInfo {
@@ -20,6 +21,21 @@ export interface HealthInfo {
   ollama: { ok: boolean; error: string };
   embed_provider: string;
   mcp_sse_url: string;
+  codegraph?: { ok: boolean; version: string; error: string };
+}
+
+export interface Repo {
+  id: string;
+  name: string;
+  source_url: string;
+  local_path: string;
+  status: DocStatus;
+  progress_pct: number;
+  progress_phase: string;
+  error_message: string | null;
+  folder: string;
+  tags: string[];
+  doc_count: number;
 }
 
 export interface UploadProgressState {

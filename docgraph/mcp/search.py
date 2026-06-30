@@ -138,6 +138,7 @@ class SearchService:
         top_k: Optional[int] = None,
         folder: Optional[str] = None,
         tags: Optional[list[str]] = None,
+        repo_id: Optional[str] = None,
     ) -> list[SearchResult]:
         start = time.perf_counter()
         # top_k=0 was a documented "use default" sentinel under the old vector-only
@@ -149,7 +150,14 @@ class SearchService:
             logger.warning("top_k capped from %d to %d", k_requested, k)
         overfetch = max(k * 6, 30)
 
-        use_hybrid = self._cfg.hybrid_enabled and self._fts is not None
+        # FTS is not repo-aware in this codebase. When a repo filter is supplied
+        # we fall back to vector-only so cross-repo BM25 hits don't pollute the
+        # ranking. Chroma supports `repo_id` directly via metadata `where`.
+        use_hybrid = (
+            self._cfg.hybrid_enabled
+            and self._fts is not None
+            and not repo_id
+        )
 
         # 1) Embed query (always needed for vector branch)
         vectors = await self._embedder.embed([query], for_query=True)
@@ -158,7 +166,8 @@ class SearchService:
         # 2) Parallel branches
         vector_task = asyncio.create_task(
             asyncio.to_thread(
-                self._chroma.search, query_vec, overfetch, folder, tags
+                self._chroma.search,
+                query_vec, overfetch, folder, tags, repo_id,
             )
         )
         if use_hybrid:

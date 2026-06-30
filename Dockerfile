@@ -74,9 +74,17 @@ ENV PATH=/app/.venv/bin:$PATH \
     # /data/models (volume) so subsequent boots reuse the ONNX file.
     DOCGRAPH_RERANK_PREWARM=false
 
-# curl needed for HEALTHCHECK below.
-RUN apt-get update && apt-get install -y --no-install-recommends curl \
+# curl needed for HEALTHCHECK below; git needed for `docgraph import-repo`.
+RUN apt-get update && apt-get install -y --no-install-recommends curl git \
     && rm -rf /var/lib/apt/lists/*
+
+# Install the codegraph CLI so /api/repos can run `codegraph init` per repo.
+# The bundled install script drops a self-contained Node runtime into ~/.codegraph/
+# and adds a launcher to /usr/local/bin so it ends up on $PATH.
+RUN curl -fsSL \
+      https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.sh \
+      | sh \
+    && codegraph --version
 
 WORKDIR /app
 

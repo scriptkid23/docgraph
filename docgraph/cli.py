@@ -218,6 +218,11 @@ def main() -> None:
     stats_sub.add_parser("chunks", help="Token count distribution for indexed chunks")
     p_watch = sub.add_parser("watch", help="manage file watcher")
     p_watch.add_argument("watch_args", nargs=argparse.REMAINDER, help="<enable|disable|status|list|add|remove|reconcile> [args]")
+    p_import_repo = sub.add_parser("import-repo", help="import a repository (URL or local path)")
+    p_import_repo.add_argument("rest", nargs=argparse.REMAINDER)
+    sub.add_parser("list-repos", help="list imported repositories")
+    p_delete_repo = sub.add_parser("delete-repo", help="delete a repository by id or name")
+    p_delete_repo.add_argument("rest", nargs=argparse.REMAINDER)
     args = parser.parse_args()
     if args.command == "serve":
         _run_serve(stdio=args.stdio)
@@ -243,6 +248,11 @@ def main() -> None:
         cfg = load_config()
         base_url = f"http://{cfg.web_host}:{cfg.web_port}"
         sys.exit(run_watch_command(args.watch_args, base_url))
+    if args.command in ("import-repo", "list-repos", "delete-repo"):
+        from docgraph.cli_repos import run_repos_command
+        rest = getattr(args, "rest", None) or []
+        cli_argv = [args.command] + list(rest)
+        sys.exit(run_repos_command(cli_argv, cfg))
     parser.print_help()
     sys.exit(1)
 

@@ -1,20 +1,23 @@
 import { useState } from "react";
 import { deleteDocument, reindexDocument } from "../api";
-import type { Document } from "../types";
+import type { Document, Repo } from "../types";
 import { StatusCell } from "./StatusCell";
 import { Button } from "./ui/Button";
 
 interface DocumentTableProps {
   documents: Document[];
+  repos?: Repo[];
   loading: boolean;
   onChanged: () => void;
 }
 
 export function DocumentTable({
   documents,
+  repos,
   loading,
   onChanged,
 }: DocumentTableProps) {
+  const repoNameById = new Map((repos ?? []).map((r) => [r.id, r.name]));
   const [actingId, setActingId] = useState<string | null>(null);
 
   const runAction = async (id: string, fn: () => Promise<void>) => {
@@ -51,6 +54,7 @@ export function DocumentTable({
               <thead>
                 <tr>
                   <th scope="col">File</th>
+                  <th scope="col">Source</th>
                   <th scope="col">Folder</th>
                   <th scope="col">Tags</th>
                   <th scope="col">Status</th>
@@ -71,6 +75,15 @@ export function DocumentTable({
                           WATCHED
                         </span>
                       )}
+                    </td>
+                    <td>
+                      {d.repo_id
+                        ? repoNameById.get(d.repo_id) ?? d.repo_id
+                        : d.source_type === "url"
+                          ? "URL"
+                          : d.source_type === "watched"
+                            ? "watched"
+                            : "—"}
                     </td>
                     <td>{d.folder || "—"}</td>
                     <td>{(d.tags || []).join(", ") || "—"}</td>

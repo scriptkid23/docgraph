@@ -1,16 +1,19 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { fetchDocuments, fetchHealth } from "./api";
+import { fetchDocuments, fetchHealth, fetchRepos } from "./api";
 import { DocumentTable } from "./components/DocumentTable";
 import { Header } from "./components/Header";
 import { IngestTabs } from "./components/IngestTabs";
+import { RepoTable } from "./components/RepoTable";
 import { SectionRule } from "./components/ui/SectionRule";
-import type { Document, HealthInfo } from "./types";
+import type { Document, HealthInfo, Repo } from "./types";
 
 export default function App() {
   const [health, setHealth] = useState<HealthInfo | null>(null);
   const [healthError, setHealthError] = useState<string | null>(null);
   const [documents, setDocuments] = useState<Document[]>([]);
   const [docsLoading, setDocsLoading] = useState(false);
+  const [repos, setRepos] = useState<Repo[]>([]);
+  const [reposLoading, setReposLoading] = useState(false);
 
   const refreshDocs = useCallback(async () => {
     setDocsLoading(true);
@@ -25,6 +28,19 @@ export default function App() {
     }
   }, []);
 
+  const refreshRepos = useCallback(async () => {
+    setReposLoading(true);
+    try {
+      const rs = await fetchRepos();
+      setRepos(rs);
+      return rs;
+    } catch {
+      return [];
+    } finally {
+      setReposLoading(false);
+    }
+  }, []);
+
   const refreshHealth = useCallback(async () => {
     try {
       setHealth(await fetchHealth());
@@ -35,8 +51,10 @@ export default function App() {
   }, []);
 
   const processingCount = useMemo(
-    () => documents.filter((d) => d.status === "processing").length,
-    [documents],
+    () =>
+      documents.filter((d) => d.status === "processing").length +
+      repos.filter((r) => r.status === "processing").length,
+    [documents, repos],
   );
 
   useEffect(() => {
@@ -51,10 +69,12 @@ export default function App() {
 
     const tick = async () => {
       if (cancelled) return;
-      const docs = await refreshDocs();
+      const [docs, rs] = await Promise.all([refreshDocs(), refreshRepos()]);
       if (cancelled) return;
-      const ms = docs.some((d) => d.status === "processing") ? 1500 : 5000;
-      timer = window.setTimeout(tick, ms);
+      const busy =
+        docs.some((d) => d.status === "processing") ||
+        rs.some((r) => r.status === "processing");
+      timer = window.setTimeout(tick, busy ? 1500 : 5000);
     };
 
     void tick();
@@ -62,7 +82,7 @@ export default function App() {
       cancelled = true;
       window.clearTimeout(timer);
     };
-  }, [refreshDocs]);
+  }, [refreshDocs, refreshRepos]);
 
   return (
     <div className="page">
@@ -79,10 +99,23 @@ export default function App() {
         />
         <SectionRule ultra />
         <main id="main">
-          <IngestTabs onChanged={() => void refreshDocs()} />
+          <IngestTabs
+            onChanged={() => void refreshDocs()}
+            onReposChanged={() => void refreshRepos()}
+          />
+          <SectionRule thick />
+          <RepoTable
+            repos={repos}
+            loading={reposLoading}
+            onChanged={() => {
+              void refreshRepos();
+              void refreshDocs();
+            }}
+          />
           <SectionRule thick />
           <DocumentTable
             documents={documents}
+            repos={repos}
             loading={docsLoading}
             onChanged={() => void refreshDocs()}
           />

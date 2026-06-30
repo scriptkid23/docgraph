@@ -2,6 +2,7 @@ import type {
   AddWatchDirRequest,
   Document,
   HealthInfo,
+  Repo,
   WatchedDir,
   WatcherStatus,
 } from "./types";
@@ -131,4 +132,39 @@ export async function triggerReconcile(): Promise<ReconcileResult> {
   const r = await fetch("/api/watch/reconcile", { method: "POST" });
   if (!r.ok) throw await _errorFromResponse(r);
   return r.json();
+}
+
+export async function fetchRepos(): Promise<Repo[]> {
+  const r = await fetch("/api/repos");
+  if (!r.ok) throw await _errorFromResponse(r);
+  return r.json();
+}
+
+export interface ImportRepoResult {
+  repo_id: string;
+  status: string;
+}
+
+export async function importRepo(
+  source: string,
+  folder: string,
+  tags: string,
+): Promise<ImportRepoResult> {
+  const r = await fetch("/api/repos", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ source, folder, tags }),
+  });
+  if (!r.ok) throw await _errorFromResponse(r);
+  return r.json();
+}
+
+export async function reindexRepo(id: string): Promise<void> {
+  const r = await fetch(`/api/repos/${id}/reindex`, { method: "POST" });
+  if (!r.ok) throw await _errorFromResponse(r);
+}
+
+export async function deleteRepo(id: string): Promise<void> {
+  const r = await fetch(`/api/repos/${id}`, { method: "DELETE" });
+  if (!r.ok) throw await _errorFromResponse(r);
 }

@@ -12,7 +12,9 @@ from pydantic import BaseModel
 
 from docgraph.config import Config
 from docgraph.ingest.urls import parse_url_lines, url_display_name, validate_url
-from docgraph.models import DocumentRecord, DocumentStatus, SourceType
+from docgraph.models import DocumentRecord, DocumentStatus, RepoRecord, SourceType
+from docgraph.repo.codegraph_client import CodegraphNotInstalled
+from docgraph.repo.manager import _repo_slug
 from docgraph.web.deps import AppState
 
 STATIC_DIR = Path(__file__).parent / "static"
@@ -81,6 +83,57 @@ class ImportUrlsBody(BaseModel):
     urls: str
     folder: str = ""
     tags: str = ""
+
+
+class CreateRepoBody(BaseModel):
+    source: str
+    folder: str = ""
+    tags: str = ""
+
+
+def _repo_to_json(repo: RepoRecord) -> dict:
+    return {
+        "id": repo.id,
+        "name": repo.name,
+        "source_url": repo.source_url,
+        "local_path": repo.local_path,
+        "status": repo.status.value,
+        "progress_pct": repo.progress_pct,
+        "progress_phase": repo.progress_phase,
+        "error_message": repo.error_message,
+        "folder": repo.folder,
+        "tags": repo.tags,
+        "doc_count": repo.doc_count,
+    }
+
+
+async def _ensure_codegraph_ready(st: AppState) -> None:
+    try:
+        await st.codegraph.health_check()
+    except Exception as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+
+
+async def _run_import_repo_existing(state: AppState, repo_id: str) -> None:
+    try:
+        repo = state.sqlite.get_repo(repo_id)
+        if repo is None:
+            return
+        await state.repos().import_repo(
+            repo.source_url,
+            folder=repo.folder,
+            tags=tuple(repo.tags),
+            existing_repo_id=repo_id,
+        )
+    except Exception:
+        logger.exception("repo import failed for repo_id=%s", repo_id)
+
+
+async def _run_reindex_repo(state: AppState, repo_id: str) -> None:
+    try:
+        await state.repos().reindex_repo(repo_id)
+    except Exception:
+        logger.exception("repo reindex failed for repo_id=%s", repo_id)
 
 
 async def _run_index(state: AppState, doc_id: str, original_path: Path) -> None:
@@ -213,6 +266,15 @@ def create_app(
             else abs(chroma_n - fts_n) <= max(10, chroma_n * 0.05)
         )
 
+        cg_ok = True
+        cg_version = ""
+        cg_error = ""
+        try:
+            cg_version = await st.codegraph.health_check()
+        except Exception as exc:
+            cg_ok = False
+            cg_error = str(exc)
+
         return {
             "status": "ok",
             "ollama": {"ok": ollama_ok, "error": ollama_error},
@@ -224,6 +286,7 @@ def create_app(
             "chroma_chunks": chroma_n,
             "fts_chunks": fts_n,
             "fts_in_sync": fts_in_sync,
+            "codegraph": {"ok": cg_ok, "version": cg_version, "error": cg_error},
         }
 
     @app.get("/api/documents")
@@ -349,6 +412,81 @@ def create_app(
             )
         background_tasks.add_task(st.indexer().reindex_document, doc_id)
         return {"doc_id": doc_id, "status": "processing"}
+
+    @app.post("/api/repos", status_code=202)
+    async def create_repo(
+        request: Request,
+        body: CreateRepoBody,
+        background_tasks: BackgroundTasks,
+    ):
+        st: AppState = request.app.state.docgraph
+        await _ensure_codegraph_ready(st)
+        tag_list = [t.strip() for t in body.tags.split(",") if t.strip()]
+        mgr = st.repos()
+        try:
+            if mgr._is_url(body.source):
+                validate_url(body.source)
+            else:
+                p = Path(body.source).resolve()
+                if not p.is_dir():
+                    raise ValueError(f"not a directory: {body.source}")
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
+        # Resolve the canonical source string we'll persist (local paths get resolved).
+        if mgr._is_url(body.source):
+            canonical_source = body.source
+            slug = _repo_slug(body.source)
+            local_path = str(st.cfg.repos_dir / slug)
+        else:
+            p = Path(body.source).resolve()
+            canonical_source = str(p)
+            slug = _repo_slug(canonical_source)
+            local_path = canonical_source
+        if st.sqlite.get_repo_by_source(canonical_source) is not None:
+            raise HTTPException(status_code=409, detail="repo already imported")
+        repo_id = f"repo_{uuid.uuid4().hex[:12]}"
+        name = slug.split("_", 1)[-1] if "_" in slug else slug
+        st.sqlite.insert_repo(RepoRecord(
+            id=repo_id, name=name, source_url=canonical_source,
+            local_path=local_path, folder=body.folder, tags=tag_list,
+        ))
+        st.sqlite.update_repo_progress(repo_id, 0, "Queued (0%)")
+        background_tasks.add_task(_run_import_repo_existing, st, repo_id)
+        return {"repo_id": repo_id, "status": "processing"}
+
+    @app.get("/api/repos")
+    async def list_repos(request: Request):
+        st: AppState = request.app.state.docgraph
+        return [_repo_to_json(r) for r in st.sqlite.list_repos()]
+
+    @app.get("/api/repos/{repo_id}")
+    async def get_repo(request: Request, repo_id: str):
+        st: AppState = request.app.state.docgraph
+        repo = st.sqlite.get_repo(repo_id)
+        if repo is None:
+            raise HTTPException(status_code=404, detail="not found")
+        return _repo_to_json(repo)
+
+    @app.post("/api/repos/{repo_id}/reindex", status_code=202)
+    async def reindex_repo(
+        request: Request,
+        repo_id: str,
+        background_tasks: BackgroundTasks,
+    ):
+        st: AppState = request.app.state.docgraph
+        await _ensure_codegraph_ready(st)
+        if st.sqlite.get_repo(repo_id) is None:
+            raise HTTPException(status_code=404, detail="not found")
+        background_tasks.add_task(_run_reindex_repo, st, repo_id)
+        return {"repo_id": repo_id, "status": "processing"}
+
+    @app.delete("/api/repos/{repo_id}")
+    async def delete_repo(request: Request, repo_id: str):
+        st: AppState = request.app.state.docgraph
+        if st.sqlite.get_repo(repo_id) is None:
+            raise HTTPException(status_code=404, detail="not found")
+        cascaded = await st.repos().delete_repo(repo_id)
+        return {"deleted": repo_id, "cascaded_docs": cascaded}
 
     @app.get("/api/watch/status")
     async def watch_status(request: Request):

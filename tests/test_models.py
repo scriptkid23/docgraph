@@ -1,4 +1,4 @@
-from docgraph.models import ChunkRecord, DocumentRecord, DocumentStatus, SearchResult
+from docgraph.models import ChunkRecord, DocumentRecord, DocumentStatus, RepoRecord, SearchResult
 
 
 def test_document_record_defaults():
@@ -40,3 +40,21 @@ def test_chunk_record_accepts_file_path():
         filename="dump.txt", folder="", tags=[], file_path="src/a.py",
     )
     assert c.file_path == "src/a.py"
+
+
+def test_repo_record_defaults():
+    r = RepoRecord(id="repo_x", name="go-ethereum", local_path="/tmp/x")
+    assert r.source_url == ""
+    assert r.status == DocumentStatus.PROCESSING
+    assert r.progress_pct == 0
+    assert r.progress_phase == ""
+    assert r.error_message is None
+    assert r.folder == ""
+    assert r.tags == []
+    assert r.doc_count == 0
+    assert r.cancel_requested is False
+
+
+def test_document_record_has_repo_id_default():
+    d = DocumentRecord(id="doc_1", filename="a.md")
+    assert d.repo_id == ""
