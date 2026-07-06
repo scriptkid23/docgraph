@@ -79,11 +79,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends curl git \
     && rm -rf /var/lib/apt/lists/*
 
 # Install the codegraph CLI so /api/repos can run `codegraph init` per repo.
-# The bundled install script drops a self-contained Node runtime into ~/.codegraph/
-# and adds a launcher to /usr/local/bin so it ends up on $PATH.
+# The bundled install script drops a self-contained Node runtime into ~/.codegraph/;
+# default bin dir is ~/.local/bin (not on PATH in slim images), so install to
+# /usr/local/bin instead.
 RUN curl -fsSL \
       https://raw.githubusercontent.com/colbymchenry/codegraph/main/install.sh \
-      | sh \
+      | CODEGRAPH_BIN_DIR=/usr/local/bin sh \
     && codegraph --version
 
 WORKDIR /app
